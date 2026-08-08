@@ -32,12 +32,11 @@ func _build() -> void:
 		return
 	_model = base.instantiate()
 	_model.name = "Model"
-	# AJUSTEMENT MATHÉMATIQUE FINAL : 0.8m.
-	# La capsule de collision fait 1.6m de haut. Son bas est à 0.0.
-	# Le modèle ayant son pivot au centre, il doit être remonté de la 
-	# moitié de la hauteur de la capsule (0.8m) pour que ses pieds 
-	# touchent exactement le bas de la capsule (0.0).
-	_model.position.y = 0.8
+	# AJUSTEMENT FINAL : 0.75m.
+	# On baisse de 5cm par rapport au calcul théorique pour s'assurer
+	# que les pieds s'enfoncent un peu dans le sol (l'herbe).
+	# Cela garantit que l'ombre est parfaitement rattachée aux pieds.
+	_model.position.y = 0.75
 	add_child(_model)
 	_apply_tint()
 	_anim_player = _model.get_node_or_null("AnimationPlayer") as AnimationPlayer
