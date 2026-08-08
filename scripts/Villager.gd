@@ -64,11 +64,11 @@ func _ready() -> void:
 		anim_player = model.get_model_anim_player()
 	nav_agent.path_desired_distance = REACH_DISTANCE
 	nav_agent.target_desired_distance = REACH_DISTANCE
-	# Évitement temps réel : le paysan dévie AUTOUR des obstacles/autres unités au
-	# lieu de foncer dedans. Le signal velocity_computed fournit la vitesse sûre.
-	nav_agent.avoidance_enabled = true
-	nav_agent.radius = 0.3
-	nav_agent.velocity_computed.connect(_on_velocity_computed)
+	# ÉVITEMENT DÉSACTIVÉ : Pour éviter tout blocage ou trajectoire hésitante entre paysans,
+	# on désactive l'évitement dynamique. Les paysans se traverseront les uns les autres
+	# (ghosting), mais resteront bloqués par les bâtiments/ressources via leur collision_mask.
+	nav_agent.avoidance_enabled = false
+	# nav_agent.velocity_computed.connect(_on_velocity_computed) # Retiré pour le ghosting
 	_town_hall = get_tree().get_first_node_in_group("town_hall") as Node3D
 	# COUCHES DE COLLISION :
 	# On place le paysan sur la couche 2.
@@ -124,7 +124,6 @@ func attack_node(target: Node3D) -> void:
 		return
 	_assigned_attack = target
 	nav_agent.target_position = target.global_position
-	nav_agent.avoidance_enabled = true  # contourne les obstacles pour atteindre la cible
 	set_state(State.GOING_TO_ATTACK)
 
 func set_selected(on: bool) -> void:
@@ -146,7 +145,6 @@ func move_to_point(point: Vector3) -> void:
 	_assigned_resource = null
 	_assigned_attack = null
 	nav_agent.target_position = point
-	nav_agent.avoidance_enabled = true  # évite les obstacles sur la route
 	_arm_watch()
 	set_state(State.MOVING)
 
@@ -172,7 +170,6 @@ func _begin_gather(resource_node: ResourceNode) -> void:
 	if NavigationServer3D.map_is_active(nav_map) and NavigationServer3D.map_get_iteration_id(nav_map) > 0:
 		approach = NavigationServer3D.map_get_closest_point(nav_map, approach)
 	nav_agent.target_position = approach
-	nav_agent.avoidance_enabled = true  # re-coupe les obstacles pendant le déplacement
 	_arm_watch()
 	set_state(State.GOING_TO_RESOURCE)
 
@@ -239,7 +236,6 @@ func _gather(delta: float) -> void:
 
 		if _town_hall != null:
 			nav_agent.target_position = _town_hall.global_position
-			nav_agent.avoidance_enabled = true  # évite de nouveau sur le chemin du retour
 			set_state(State.RETURNING)
 		else:
 			_select_next_task()
@@ -448,47 +444,33 @@ func _stuck_check(delta: float) -> bool:
 	return false
 
 func _step(_delta: float) -> void:
-	# Suit le chemin calculé par le NavigationAgent3D (A* sur le navmesh) : le
-	# paysan contourne les obstacles (bâtiments, ressources) au lieu de marcher
-	# en ligne droite. Petite ralentissement en approche de la destination.
+	# MOUVEMENT DIRECT SANS ÉVITEMENT : Les paysans s'ignorent physiquement pour
+	# éviter les bouchons (ghosting). La navigation gère le contournement des
+	# obstacles statiques (arbres, bâtiments).
 	var target := nav_agent.target_position
 	var desired := Vector3.ZERO
 	var map_ready: bool = NavigationServer3D.map_get_iteration_id(nav_agent.get_navigation_map()) > 0
+	
 	if map_ready and not nav_agent.is_navigation_finished():
 		var next := nav_agent.get_next_path_position()
 		desired = next - global_position
 		desired.y = 0.0
 	else:
-		# Repli : navmesh absent/indisponible → marche en ligne droite vers la cible.
 		desired = target - global_position
 		desired.y = 0.0
+	
 	var dist := desired.length()
 	if dist > 0.001:
 		desired = desired.normalized() * MOVE_SPEED * minf(1.0, dist / 1.5)
 		_facing(desired)
 	else:
 		desired = Vector3.ZERO
-	# Évitement temps réel : NAVAgent renvoie une vitesse sûre qui dévie autour
-	# des obstacles (bâtiments, ressources, autres unités) pour ne pas rester
-	# collé/bouché. `velocity_computed` applique cette vitesse sûre. Sans carte
-	# prête, on applique directement la vitesse demandée.
-	if nav_agent.avoidance_enabled and map_ready:
-		nav_agent.set_velocity(desired)
-		return
+	
 	_apply_movement(desired)
-
-# Vitesse sûre recalculée par l'évitement ; on l'applique uniquement si on est
-# dans un état de mouvement (pas pendant la récolte ou l'attaque).
-func _on_velocity_computed(safe_velocity: Vector3) -> void:
-	if _state in [State.GATHERING, State.ATTACKING, State.IDLE]:
-		velocity = Vector3.ZERO
-		return
-	_apply_movement(safe_velocity)
 
 func _apply_movement(vel: Vector3) -> void:
 	velocity = vel
 	move_and_slide()
-	# Filet de sécurité : on reste dans la zone jouable autour de la base du joueur.
 	var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
 	global_position.x = clampf(global_position.x, base.x - VILLAGE_HALF - 2.0, base.x + VILLAGE_HALF + 2.0)
 	global_position.z = clampf(global_position.z, base.z - VILLAGE_HALF - 2.0, base.z + VILLAGE_HALF + 2.0)
