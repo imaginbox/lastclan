@@ -26,11 +26,10 @@ const GATHER_TIME: float = 2.0
 # malgré sa collision (arbre : boîte 1.8 → bord à 0.9 + rayon 0.35 = ~1.25).
 # Anciennement 1.2, trop juste pour les arbres : le paysan restait bloqué au
 # bord sans jamais déclencher la récolte.
-# Distance de portée : très souple (4.0) pour garantir que le paysan commence à
-# récolter dès qu'il est à proximité, sans buter contre la collision de l'arbre.
-const REACH_DISTANCE: float = 4.0
-# Rayon de livraison à l'hôtel de ville : également souple pour éviter les blocages.
-const DELIVER_DISTANCE: float = 4.5
+# Distance de portée : ajustée à 2.2 pour être proche de la source sans coller.
+const REACH_DISTANCE: float = 2.2
+# Rayon de livraison à l'hôtel de ville : ajusté à 2.6 pour un visuel propre.
+const DELIVER_DISTANCE: float = 2.6
 const VILLAGE_HALF: float = 60.0      # le paysan peut explorer une large zone autour de sa base
 const ATTACK_RANGE: float = 1.5
 const ATTACK_DAMAGE: int = 5
@@ -84,27 +83,31 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
+	
+	# GESTION DES ANIMATIONS SELON LE MOUVEMENT RÉEL
+	# Si on est censé courir mais qu'on ne bouge pas (bloqué contre un mur/arbre),
+	# on joue l'animation Idle pour éviter de "courir dans le vide".
+	var moving := velocity.length() > 0.2
+	
 	match _state:
 		State.IDLE:
 			_anim(anim_idle)
-		State.GOING_TO_RESOURCE:
-			_anim(anim_run)
-			_move_to_target(delta)
-		State.GATHERING:
+		State.GOING_TO_RESOURCE, State.RETURNING, State.GOING_TO_ATTACK, State.MOVING:
+			if moving:
+				_anim(anim_run)
+			else:
+				_anim(anim_idle)
+			
+			# Dispatch des mouvements
+			if _state == State.GOING_TO_RESOURCE: _move_to_target(delta)
+			elif _state == State.RETURNING: _return_to_townhall(delta)
+			elif _state == State.GOING_TO_ATTACK: _move_to_attack(delta)
+			elif _state == State.MOVING: _move_to_point_state(delta)
+			
+		State.GATHERING, State.ATTACKING:
 			_anim(anim_work)
-			_gather(delta)
-		State.RETURNING:
-			_anim(anim_run)
-			_return_to_townhall(delta)
-		State.GOING_TO_ATTACK:
-			_anim(anim_run)
-			_move_to_attack(delta)
-		State.ATTACKING:
-			_anim(anim_work)
-			_attack(delta)
-		State.MOVING:
-			_anim(anim_run)
-			_move_to_point_state(delta)
+			if _state == State.GATHERING: _gather(delta)
+			else: _attack(delta)
 
 ## --- API publique ---
 
