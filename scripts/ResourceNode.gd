@@ -86,6 +86,17 @@ var _selection_ring: MeshInstance3D = null
 ## même répertoire) pendant toute sa vie, au lieu de changer de famille au hasard
 ## à chaque mise à jour visuelle (ce qui le faisait se transformer en deux modèles).
 var _tree_family_index: int = -1
+var _regen_timer: float = 0.0
+
+func _process(delta: float) -> void:
+	# CYCLE NATUREL : Régénération lente des arbres si non épuisés.
+	# Permet un écosystème durable si le joueur gère bien sa forêt.
+	if resource_type == ResourceType.WOOD and amount > 0 and amount < max_amount:
+		_regen_timer += delta
+		if _regen_timer >= 15.0: # Repousse un peu toutes les 15s
+			amount = min(amount + 1, max_amount)
+			_regen_timer = 0.0
+			_update_visual()
 
 func _ready() -> void:
 	# COLLISION RTS : les ressources sont des obstacles physiques (layer 1).

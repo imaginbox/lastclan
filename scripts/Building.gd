@@ -10,65 +10,73 @@ extends StaticBody3D
 signal unit_requested(unit_type: int)   # 0 = paysan, 1 = soldat
 signal building_changed
 
-enum Type { TOWN_HALL, BARRACKS, HOUSE, TOWER, FERME, CARRIERE }
+enum Type { TOWN_HALL, BARRACKS, HOUSE, TOWER, FERME, CARRIERE, MINE_OR }
 enum Unit { VILLAGER, SOLDIER }
 
-## --- Configuration par type ---
+## --- Configuration Stratégique ---
 const TYPES := {
 	Type.TOWN_HALL: {
 		"name": "Hôtel de ville",
 		"cost_gold": 0, "cost_wood": 0,
 		"footprint": 2, "max_level": 3,
-		"upg_gold": 150, "upg_wood": 100,
+		"upg_gold": 250, "upg_wood": 200, "upg_stone": 100,
 		"min_th_level": 0,
 		"color": Color(0.6, 0.4, 0.2),
-		"recruit_gold": 40, "recruit_wood": 0, "recruit_food": 5, "recruit_pop": 1,
+		"recruit_gold": 50, "recruit_food": 10, "recruit_pop": 1,
 	},
 	Type.BARRACKS: {
 		"name": "Caserne",
-		"cost_gold": 120, "cost_wood": 80,
+		"cost_gold": 150, "cost_wood": 120, "cost_stone": 60,
 		"footprint": 2, "max_level": 3,
-		"upg_gold": 80, "upg_wood": 60,
-		"min_th_level": 3,
-		"color": Color(0.55, 0.35, 0.6),
-		"train_gold": 50, "train_wood": 10, "train_pop": 1,
-		"train_time": 4.0,
+		"upg_gold": 120, "upg_wood": 100,
+		"min_th_level": 2,
+		"color": Color(0.7, 0.2, 0.2),
+		"train_gold": 60, "train_wood": 20, "train_pop": 1,
+		"train_time": 5.0,
 	},
 	Type.HOUSE: {
 		"name": "Maison",
-		"cost_gold": 40, "cost_wood": 60,
+		"cost_gold": 50, "cost_wood": 80,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 40, "upg_wood": 50,
+		"upg_gold": 60, "upg_wood": 60,
 		"min_th_level": 1,
 		"color": Color(0.8, 0.6, 0.35),
-		"pop_provided": 5,
+		"pop_provided": 10,
 	},
 	Type.TOWER: {
-		"name": "Tour de défense",
-		"cost_gold": 60, "cost_wood": 40, "cost_stone": 80,
+		"name": "Tour de garde",
+		"cost_gold": 120, "cost_wood": 100, "cost_stone": 180,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 50, "upg_wood": 40, "upg_stone": 60,
+		"upg_gold": 100, "upg_wood": 80, "upg_stone": 150,
 		"min_th_level": 2,
-		"color": Color(0.5, 0.55, 0.65),
-		"attack_damage": 6,
+		"color": Color(0.4, 0.4, 0.5),
+		"attack_damage": 12,
 	},
 	Type.FERME: {
 		"name": "Ferme",
-		"cost_gold": 30, "cost_wood": 40,
+		"cost_gold": 40, "cost_wood": 80,
 		"footprint": 2, "max_level": 3,
-		"upg_gold": 30, "upg_wood": 30,
+		"upg_gold": 50, "upg_wood": 50,
 		"min_th_level": 1,
-		"color": Color(0.55, 0.75, 0.35),
-		"production": { "food": 1 },
+		"color": Color(0.9, 0.8, 0.2),
+		"production": { "food": 3 },
 	},
 	Type.CARRIERE: {
 		"name": "Carrière",
-		"cost_gold": 20, "cost_wood": 30, "cost_stone": 10,
+		"cost_gold": 100, "cost_wood": 120, "cost_stone": 20,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 25, "upg_wood": 25,
-		"min_th_level": 2,
+		"upg_gold": 80, "upg_wood": 80,
+		"min_th_level": 1,
 		"color": Color(0.6, 0.6, 0.65),
 		"production": { "stone": 1 },
+	},
+	Type.MINE_OR: {
+		"name": "Mine d'Or",
+		"cost_gold": 80, "cost_wood": 250, "cost_stone": 200,
+		"footprint": 1, "max_level": 3,
+		"upg_gold": 150, "upg_wood": 150, "min_th_level": 2,
+		"color": Color(1.0, 0.84, 0.0),
+		"production": { "gold": 4 },
 	},
 }
 const HEIGHT := 2.0   # hauteur de base d'un bâtiment (mètres)
@@ -166,6 +174,8 @@ func _produce(delta: float) -> void:
 		rm.add_food(int(prod["food"] * delta))
 	if prod.has("stone"):
 		rm.add_stone(int(prod["stone"] * delta))
+	if prod.has("gold"):
+		rm.add_gold(int(prod["gold"] * delta))
 
 ## --- Effets par type ---
 ## Population fournie (maisons) : augmente avec le niveau.

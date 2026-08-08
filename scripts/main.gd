@@ -294,7 +294,14 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 	if forced_type >= 0:
 		t = forced_type as ResourceNode.ResourceType
 	else:
-		t = types[randi() % types.size()]
+		# RÉPARTITION STRATÉGIQUE : Le bois est abondant (60%), 
+		# la pierre modérée (25%), la nourriture rare (10%), 
+		# et l'or est très rare (5%).
+		var r := randf()
+		if r < 0.6: t = ResourceNode.ResourceType.WOOD
+		elif r < 0.85: t = ResourceNode.ResourceType.STONE
+		elif r < 0.95: t = ResourceNode.ResourceType.FOOD
+		else: t = ResourceNode.ResourceType.GOLD
 	var node: Node3D = RESOURCE_SCENE.instantiate()
 	node.set("resource_type", t)
 	match t:
@@ -1029,8 +1036,8 @@ func _setup_build_ui() -> void:
 	# est fait dans _refresh_build_buttons.
 	var all_types: Array[Building.Type] = [
 		Building.Type.HOUSE, Building.Type.FERME,
-		Building.Type.CARRIERE, Building.Type.TOWER,
-		Building.Type.BARRACKS,
+		Building.Type.CARRIERE, Building.Type.MINE_OR,
+		Building.Type.TOWER, Building.Type.BARRACKS,
 	]
 	for t in all_types:
 		var btn := Button.new()
