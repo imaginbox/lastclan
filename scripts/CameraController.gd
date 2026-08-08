@@ -98,11 +98,11 @@ func _pan(screen_delta: Vector2) -> void:
 	var move_x := right * (-screen_delta.x * world_per_pixel)
 	
 	# Le mouvement vertical (souris Y -> Forward/Backward du monde)
-	# On compense l'inclinaison (pitch) : plus la caméra est à plat, plus il faut
-	# bouger loin sur le sol pour un pixel écran.
+	# On inverse le signe (-screen_delta.y) pour que tirer la souris vers le bas
+	# fasse descendre la carte (mouvement "Grab").
 	var pitch_rad := deg_to_rad(pitch_deg)
 	var compensate := 1.0 / sin(pitch_rad)
-	var move_y := forward_ground * (screen_delta.y * world_per_pixel * compensate)
+	var move_y := forward_ground * (-screen_delta.y * world_per_pixel * compensate)
 	
 	_pivot = _clamp_pivot(_pivot + move_x + move_y)
 
