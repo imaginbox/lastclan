@@ -487,11 +487,12 @@ func _anim(anim_name: StringName) -> void:
 
 func set_state(s: State) -> void:
 	_state = s
-	# Si on commence à récolter ou attaquer, on stoppe net tout mouvement physique
-	# pour éviter que le paysan ne continue à glisser par inertie.
+	# Arrêt immédiat de la physique ET de l'animation de course lors d'un arrêt.
 	if _state in [State.GATHERING, State.ATTACKING, State.IDLE]:
 		velocity = Vector3.ZERO
 		nav_agent.set_velocity(Vector3.ZERO)
+		if anim_player != null:
+			anim_player.stop() # Stoppe l'animation en cours (Course) immédiatement
 
 var _sel_material: StandardMaterial3D = null
 
