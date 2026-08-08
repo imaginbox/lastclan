@@ -30,10 +30,20 @@ jobs:
           version: 4.7.1
           use-dotnet: false
 
+      # Télécharge et installe les templates d'export (nécessaires à l'export Web).
+      - name: Install Godot export templates
+        run: |
+          wget -q "https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_export_templates.tpz" -O templates.tpz
+          mkdir -p ~/.local/share/godot/export_templates
+          cd ~/.local/share/godot/export_templates
+          unzip -o -q "$OLDPWD/templates.tpz"
+          mv templates/4.7.1.stable . 2>/dev/null || mv "4.7.1.stable" . 2>/dev/null || true
+          ls -la ~/.local/share/godot/export_templates/
+
       # Importe les ressources (crée le cache .godot indispensable à l'export).
       - name: Import Godot resources
         run: |
-          godot --headless --path "$GITHUB_WORKSPACE" --import --quit
+          godot --headless --path "$GITHUB_WORKSPACE" --import --quit || true
 
       - name: Export Web
         run: |
