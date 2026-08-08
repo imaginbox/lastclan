@@ -21,6 +21,7 @@ var _create_code_input: LineEdit
 var _join_code_input: LineEdit
 var _recent_box: VBoxContainer
 var _invite_button: Button
+var _offline_button: Button
 
 var _recent_rooms: Array[String] = []
 
@@ -96,9 +97,15 @@ func _build_ui() -> void:
 	for m in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
 		margin.add_theme_constant_override(m, 20)
 	panel.add_child(margin)
+	# Contenu défilable : évite que les boutons du bas soient coupés hors écran.
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 520)
+	margin.add_child(scroll)
 	var vb := VBoxContainer.new()
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vb.add_theme_constant_override("separation", 12)
-	margin.add_child(vb)
+	scroll.add_child(vb)
 
 	# Titre
 	var title := Label.new()
@@ -114,6 +121,14 @@ func _build_ui() -> void:
 	_name_input.text = Lobby.player_info.get("name", "Joueur")
 	_name_input.custom_minimum_size = Vector2(0, 34)
 	vb.add_child(_name_input)
+
+	# Jouer hors ligne : fonctionne sans réseau ni relais — bien visible en haut.
+	_offline_button = Button.new()
+	_offline_button.text = "Jouer hors ligne (solo)"
+	_offline_button.custom_minimum_size = Vector2(0, 44)
+	_offline_button.disabled = false
+	_offline_button.pressed.connect(_on_offline_pressed)
+	vb.add_child(_offline_button)
 
 	# Onglets Créer / Rejoindre
 	var tabs := TabContainer.new()
@@ -313,6 +328,16 @@ func _send_chat_text() -> void:
 	_chat_input.grab_focus()
 
 func _on_launch_pressed() -> void:
+	_auto_launch = false
+	_launch_game()
+
+## Passe le Lobby en mode hors ligne (base à l'origine, aucun réseau) puis lance
+## immédiatement la partie en solo, sans attendre le relais.
+func _on_offline_pressed() -> void:
+	_apply_name()
+	# Force un mode 100 % hors ligne : pas de WebSocket, base à l'origine.
+	Lobby._go_offline()
+	_on_status("Mode hors ligne — lancement de la partie en solo…")
 	_auto_launch = false
 	_launch_game()
 

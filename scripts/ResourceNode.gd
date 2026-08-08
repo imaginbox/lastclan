@@ -69,12 +69,51 @@ var model_scale: float = 1.0
 
 var _model_root: Node3D = null
 var _current_stage: int = -1
+var _selection_ring: MeshInstance3D = null
 
 func _ready() -> void:
 	amount = clampi(starting_amount, 0, max_amount)
 	_build_model_root()
 	_setup_collision()
+	_build_selection_ring()
 	_update_visual()
+
+## Construit un anneau posé au sol : il apparaît quand le joueur clique sur la
+## source, pour qu'on voie à l'instant que cette source a bien été sélectionnée.
+func _build_selection_ring() -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.95, 1.0, 0.4)
+	mat.emission_enabled = true
+	mat.emission = Color(0.95, 1.0, 0.35)
+	mat.emission_energy = 2.5
+	var torus := TorusMesh.new()
+	torus.inner_radius = 1.4
+	torus.outer_radius = 1.6
+	torus.rings = 48
+	torus.ring_segments = 24
+	_selection_ring = MeshInstance3D.new()
+	_selection_ring.name = "SelectionRing"
+	_selection_ring.mesh = torus
+	_selection_ring.material_override = mat
+	# Couche plat à plat sur le sol (le tore est dans le plan XY par défaut).
+	_selection_ring.rotation_degrees.x = 90.0
+	_selection_ring.position.y = 0.12
+	_selection_ring.visible = false
+	add_child(_selection_ring)
+
+## Affiche l'anneau de sélection au-dessus de la source.
+func set_selected(on: bool) -> void:
+	if _selection_ring != null:
+		_selection_ring.visible = on
+
+## Quand on clique sur la source : montre l'anneau puis le fait disparaître.
+func flash_selected() -> void:
+	if _selection_ring == null:
+		return
+	set_selected(true)
+	var tw := create_tween()
+	tw.tween_interval(1.4)
+	tw.tween_callback(set_selected.bind(false))
 
 func _process(delta: float) -> void:
 	# Régénération lente : tant que le nœud existe, sa quantité remonte.

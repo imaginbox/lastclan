@@ -150,6 +150,7 @@ func _gather(delta: float) -> void:
 			if taken > 0:
 				_add_harvest_to_city(taken)
 				_carried_type = _assigned_resource.resource_type
+				_show_harvest_float(taken)
 		if _town_hall != null:
 			nav_agent.target_position = _town_hall.global_position
 			set_state(State.RETURNING)
@@ -183,6 +184,24 @@ func _select_next_task() -> void:
 		# il ne repartira que sur un ordre (récolte/attaque).
 		_assigned_resource = null
 		set_state(State.IDLE)
+
+## Affiche le nombre de récolte cartoonesque au-dessus de la source.
+func _show_harvest_float(taken: int) -> void:
+	if _assigned_resource == null:
+		return
+	var world := get_tree().get_first_node_in_group("world")
+	if world == null or not world.has_method("show_float_text"):
+		return
+	var pos := _assigned_resource.global_position + Vector3(0.0, 2.4, 0.0)
+	world.call("show_float_text", pos, "+%d" % taken, _resource_color(_assigned_resource.resource_type))
+
+## Couleur du nombre flottant selon le type de ressource.
+func _resource_color(t: ResourceNode.ResourceType) -> Color:
+	match t:
+		ResourceNode.ResourceType.GOLD: return Color(1.0, 0.85, 0.3)   # or
+		ResourceNode.ResourceType.WOOD: return Color(0.55, 0.9, 0.4)   # bois/vert
+		ResourceNode.ResourceType.STONE: return Color(0.8, 0.82, 0.88) # pierre
+	return Color.WHITE
 
 ## Ajoute la récolte à l'économie de la ville selon son type.
 func _add_harvest_to_city(taken: int) -> void:

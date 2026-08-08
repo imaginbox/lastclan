@@ -14,6 +14,7 @@ const VILLAGER_SCENE := preload("res://scenes/Villager.tscn")
 const RESOURCE_SCENE := preload("res://scenes/ResourceNode.tscn")
 const SOLDIER_SCENE := preload("res://scenes/Soldier.tscn")
 const DecorScript := preload("res://scripts/Decor.gd")
+const FLOAT_TEXT_SCENE := preload("res://scripts/FloatingText.gd")
 
 const CELL := 1.0
 const GRID_HALF := 190.0
@@ -64,6 +65,9 @@ var _hud_workers_label: Label = null
 var _hud_soldiers_label: Label = null
 var _hud_room_label: Label = null
 
+## --- Nombres de récolte flottants (HUD cartoon) ---
+var _float_root: CanvasLayer = null
+
 ## --- Sync live des unités (multijoueur) ---
 var _remote_units: Node3D = null
 var _remote_rep: Dictionary = {}      # peer_id -> Array[Node3D] (représentations distantes)
@@ -95,6 +99,8 @@ var _move_button: Button = null
 func _ready() -> void:
 	randomize()
 	_camera = $Camera3D
+	add_to_group("world")
+	_setup_float_layer()
 	_setup_selection_overlay()
 	_setup_hud()
 	_setup_build_ui()
@@ -701,6 +707,10 @@ func _select_single(screen_pos: Vector2) -> void:
 	_deselect_all()
 	if not hit.is_empty():
 		var node: Node = hit["collider"] as Node
+		# Clic sur une source : montre qu'elle a été cliquée (anneau lumineux).
+		var rn := _resource_at(node)
+		if rn != null:
+			rn.flash_selected()
 		var unit := _unit_at(node)
 		if unit != null:
 			_selected_units.append(unit)
@@ -756,6 +766,7 @@ func _order_action(screen_pos: Vector2) -> void:
 	# Ressource à puiser.
 	var rn := _resource_at(node)
 	if rn != null:
+		rn.flash_selected()
 		for u in _selected_units:
 			if u is Villager:
 				u.send_to_gather(rn)
@@ -843,6 +854,22 @@ func _setup_selection_overlay() -> void:
 	_overlay_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(_overlay_rect)
 	_overlay_rect.visible = false
+
+## Couche dédiée aux nombres de récolte flottants (au-dessus du HUD).
+func _setup_float_layer() -> void:
+	_float_root = CanvasLayer.new()
+	_float_root.name = "FloatingText"
+	_float_root.layer = 60
+	add_child(_float_root)
+
+## Affiche un nombre de récolte cartoonesque sur une position monde (appelé par
+## les paysans quand ils prélèvent une ressource).
+func show_float_text(world_pos: Vector3, text: String, color: Color) -> void:
+	if _float_root == null:
+		_setup_float_layer()
+	var ft: FloatingText = FLOAT_TEXT_SCENE.new()
+	_float_root.add_child(ft)
+	ft.start(world_pos, text, color)
 
 func _setup_hud() -> void:
 	var layer := CanvasLayer.new()
