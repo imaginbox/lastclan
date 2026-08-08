@@ -461,8 +461,12 @@ func _step(_delta: float) -> void:
 		return
 	_apply_movement(desired)
 
-# Vitesse sûre recalculée par l'évitement ; on l'applique immédiatement.
+# Vitesse sûre recalculée par l'évitement ; on l'applique uniquement si on est
+# dans un état de mouvement (pas pendant la récolte ou l'attaque).
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	if _state in [State.GATHERING, State.ATTACKING, State.IDLE]:
+		velocity = Vector3.ZERO
+		return
 	_apply_movement(safe_velocity)
 
 func _apply_movement(vel: Vector3) -> void:
@@ -483,6 +487,11 @@ func _anim(anim_name: StringName) -> void:
 
 func set_state(s: State) -> void:
 	_state = s
+	# Si on commence à récolter ou attaquer, on stoppe net tout mouvement physique
+	# pour éviter que le paysan ne continue à glisser par inertie.
+	if _state in [State.GATHERING, State.ATTACKING, State.IDLE]:
+		velocity = Vector3.ZERO
+		nav_agent.set_velocity(Vector3.ZERO)
 
 var _sel_material: StandardMaterial3D = null
 
