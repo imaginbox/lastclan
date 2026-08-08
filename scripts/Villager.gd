@@ -76,12 +76,12 @@ func _ready() -> void:
 	# nav_agent.velocity_computed.connect(_on_velocity_computed) # Retiré pour le ghosting
 	_town_hall = get_tree().get_first_node_in_group("town_hall") as Node3D
 	# COUCHES DE COLLISION :
-	# On place le paysan sur la couche 2.
-	# Il ne masque que la couche 1 (Bâtiments, Ressources, Obstacles).
-	# RÉSULTAT : les paysans s'ignorent physiquement (plus de blocage entre eux)
-	# mais butent toujours contre les décors.
+	# COLLISION GHOST : Le paysan est guidé à 100% par le NavMesh.
+	# Il n'a plus besoin de masque de collision car le NavMesh contient déjà
+	# les trous pour les arbres et les bâtiments. Cela supprime tout risque
+	# de rester "collé" physiquement à un objet.
 	collision_layer = 2
-	collision_mask = 1
+	collision_mask = 0
 	# Sans ordre, il attend en place. La tâche par défaut (récolte) lui est
 	# assignée depuis main.gd (ressource la plus proche) -> allers-retours infinis.
 	set_state(State.IDLE)
@@ -441,13 +441,13 @@ func _stuck_check(delta: float) -> bool:
 		_stuck_t = 0.0
 	else:
 		_stuck_t += delta
-	# Bloqué trop longtemps : on essaie de se dégager avec une petite secousse
-	# et on demande un nouveau chemin.
+	# Bloqué trop longtemps : on essaie de se dégager radicalement.
 	if _stuck_t >= STUCK_TIMEOUT:
 		_arm_watch()
-		# Petite impulsion de dégagement latérale
-		var jitter := Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
-		global_position += jitter * 0.2
+		# On se déplace vers le prochain point de passage immédiatement pour "sauter" le blocage.
+		var next := nav_agent.get_next_path_position()
+		var dir := global_position.direction_to(next)
+		global_position += dir * 0.4
 		nav_agent.target_position = nav_agent.get_final_position()
 		return true
 	return false

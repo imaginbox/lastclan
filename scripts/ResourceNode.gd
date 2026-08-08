@@ -156,12 +156,6 @@ func flash_selected() -> void:
 	tw.tween_interval(1.4)
 	tw.tween_callback(set_selected.bind(false))
 
-func _process(delta: float) -> void:
-	# Régénération lente : tant que le nœud existe, sa quantité remonte.
-	if amount < max_amount and amount > 0:
-		amount = mini(max_amount, amount + int(REGEN_RATE * delta))
-		_update_visual()
-
 ## Crée le conteneur du modèle (les variantes s'échangent à l'intérieur).
 func _build_model_root() -> void:
 	_model_root = Node3D.new()

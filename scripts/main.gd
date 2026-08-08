@@ -175,14 +175,15 @@ func _bake_navmesh() -> void:
 	var region := nav_region
 	var mesh := NavigationMesh.new()
 	
-	# SYNCHRONISATION : On règle la taille de cellule de la carte globale.
+	# RÉGLAGE NAVMESH : On remonte à 0.2 pour plus de stabilité. 
+	# 0.1 était trop "nerveux" et créait des micro-coupures dans les chemins.
 	var map := get_world_3d().navigation_map
-	NavigationServer3D.map_set_cell_size(map, 0.1)
-	NavigationServer3D.map_set_cell_height(map, 0.1)
+	NavigationServer3D.map_set_cell_size(map, 0.2)
+	NavigationServer3D.map_set_cell_height(map, 0.2)
 	
-	mesh.cell_size = 0.1
-	mesh.cell_height = 0.1
-	mesh.agent_radius = 0.35
+	mesh.cell_size = 0.2
+	mesh.cell_height = 0.2
+	mesh.agent_radius = 0.4
 	mesh.agent_height = 1.5
 	mesh.agent_max_climb = 0.5
 	
@@ -289,7 +290,6 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 			break
 		pos.x = clampf(pos.x + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
 		pos.z = clampf(pos.z + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
-	var types := [ResourceNode.ResourceType.GOLD, ResourceNode.ResourceType.WOOD, ResourceNode.ResourceType.STONE, ResourceNode.ResourceType.FOOD]
 	var t: ResourceNode.ResourceType
 	if forced_type >= 0:
 		t = forced_type as ResourceNode.ResourceType
