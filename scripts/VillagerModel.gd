@@ -32,11 +32,12 @@ func _build() -> void:
 		return
 	_model = base.instantiate()
 	_model.name = "Model"
-	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.65m.
-	# Les capsules font 1.6m, donc 0.8m est le centre. En mettant 0.65m,
-	# on force les pieds à s'enfoncer plus profondément dans le sol physique,
-	# ce qui garantit visuellement qu'il ne flotte pas sur les pentes.
-	_model.position.y = 0.65
+	# AJUSTEMENT MATHÉMATIQUE FINAL : 0.8m.
+	# La capsule de collision fait 1.6m de haut. Son bas est à 0.0.
+	# Le modèle ayant son pivot au centre, il doit être remonté de la 
+	# moitié de la hauteur de la capsule (0.8m) pour que ses pieds 
+	# touchent exactement le bas de la capsule (0.0).
+	_model.position.y = 0.8
 	add_child(_model)
 	_apply_tint()
 	_anim_player = _model.get_node_or_null("AnimationPlayer") as AnimationPlayer

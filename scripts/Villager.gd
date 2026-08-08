@@ -506,6 +506,9 @@ func set_state(s: State) -> void:
 	# Arrêt immédiat de la physique ET de l'animation de course lors d'un arrêt.
 	if _state in [State.GATHERING, State.ATTACKING, State.IDLE]:
 		velocity = Vector3.ZERO
+		# On s'assure qu'on est bien posé au sol
+		move_and_slide()
+		velocity = Vector3.ZERO
 		nav_agent.set_velocity(Vector3.ZERO)
 		if anim_player != null:
 			anim_player.stop() # Stoppe l'animation en cours (Course) immédiatement
