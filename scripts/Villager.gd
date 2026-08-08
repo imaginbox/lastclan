@@ -26,10 +26,10 @@ const GATHER_TIME: float = 2.0
 # malgré sa collision (arbre : boîte 1.8 → bord à 0.9 + rayon 0.35 = ~1.25).
 # Anciennement 1.2, trop juste pour les arbres : le paysan restait bloqué au
 # bord sans jamais déclencher la récolte.
-const REACH_DISTANCE: float = 2.0
+const REACH_DISTANCE: float = 2.8
 # Rayon de livraison à l'hôtel de ville : doit être assez grand pour être atteint
 # malgré la collision de la bâtisse (les paysans s'arrêtent à son bord, pas au centre).
-const DELIVER_DISTANCE: float = 2.5
+const DELIVER_DISTANCE: float = 3.0
 const VILLAGE_HALF: float = 60.0      # le paysan peut explorer une large zone autour de sa base
 const ATTACK_RANGE: float = 1.5
 const ATTACK_DAMAGE: int = 5
@@ -67,10 +67,15 @@ func _ready() -> void:
 	# Évitement temps réel : le paysan dévie AUTOUR des obstacles/autres unités au
 	# lieu de foncer dedans. Le signal velocity_computed fournit la vitesse sûre.
 	nav_agent.avoidance_enabled = true
-	nav_agent.radius = 0.4
+	nav_agent.radius = 0.3
 	nav_agent.velocity_computed.connect(_on_velocity_computed)
 	_town_hall = get_tree().get_first_node_in_group("town_hall") as Node3D
-	# Le paysan ne percute que les obstacles/unités (couche 1), pas le sol (couche 2).
+	# COUCHES DE COLLISION :
+	# On place le paysan sur la couche 2.
+	# Il ne masque que la couche 1 (Bâtiments, Ressources, Obstacles).
+	# RÉSULTAT : les paysans s'ignorent physiquement (plus de blocage entre eux)
+	# mais butent toujours contre les décors.
+	collision_layer = 2
 	collision_mask = 1
 	# Sans ordre, il attend en place. La tâche par défaut (récolte) lui est
 	# assignée depuis main.gd (ressource la plus proche) -> allers-retours infinis.
