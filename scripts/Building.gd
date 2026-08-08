@@ -19,10 +19,11 @@ const TYPES := {
 		"name": "Hôtel de ville",
 		"cost_gold": 0, "cost_wood": 0,
 		"footprint": 2, "max_level": 3,
-		"upg_gold": 250, "upg_wood": 200, "upg_stone": 100,
+		"upg_gold": 100, "upg_wood": 150, "upg_stone": 50,
 		"min_th_level": 0,
 		"color": Color(0.6, 0.4, 0.2),
-		"recruit_gold": 50, "recruit_food": 10, "recruit_pop": 1,
+		"recruit_gold": 40, "recruit_food": 5, "recruit_pop": 1,
+		"production": { "gold": 0.5 },
 	},
 	Type.BARRACKS: {
 		"name": "Caserne",
@@ -72,11 +73,12 @@ const TYPES := {
 	},
 	Type.MINE_OR: {
 		"name": "Mine d'Or",
-		"cost_gold": 80, "cost_wood": 250, "cost_stone": 200,
+		"cost_gold": 0, "cost_wood": 150, "cost_stone": 100,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 150, "upg_wood": 150, "min_th_level": 2,
+		"upg_gold": 100, "upg_wood": 100,
+		"min_th_level": 1,
 		"color": Color(1.0, 0.84, 0.0),
-		"production": { "gold": 4 },
+		"production": { "gold": 2.5 },
 	},
 }
 const HEIGHT := 2.0   # hauteur de base d'un bâtiment (mètres)
