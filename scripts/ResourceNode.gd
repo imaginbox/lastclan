@@ -70,9 +70,18 @@ var model_scale: float = 1.0
 var _model_root: Node3D = null
 var _current_stage: int = -1
 var _selection_ring: MeshInstance3D = null
+## Indice de la famille d'arbres choisie UNE fois à la création. Chaque famille
+## (tree1, tree2, tree3) correspond à un répertoire / un type d'arbre différent.
+## On le fige pour que l'arbre garde TOUJOURS le même type (et donc les modèles du
+## même répertoire) pendant toute sa vie, au lieu de changer de famille au hasard
+## à chaque mise à jour visuelle (ce qui le faisait se transformer en deux modèles).
+var _tree_family_index: int = -1
 
 func _ready() -> void:
 	amount = clampi(starting_amount, 0, max_amount)
+	# Détermine une fois pour toutes la famille d'arbres de ce nœud.
+	if resource_type == ResourceType.WOOD:
+		_tree_family_index = randi() % TREE_FAMILIES.size()
 	_build_model_root()
 	_setup_collision()
 	_build_selection_ring()
@@ -198,7 +207,11 @@ func _update_visual() -> void:
 func _stages() -> Array:
 	match resource_type:
 		ResourceType.WOOD:
-			return TREE_FAMILIES[randi() % TREE_FAMILIES.size()]
+			# Famille figée à la création : l'arbre reste toujours dans le même
+			# répertoire (tree1, tree2 ou tree3) — plus de changement aléatoire.
+			if _tree_family_index < 0:
+				_tree_family_index = randi() % TREE_FAMILIES.size()
+			return TREE_FAMILIES[_tree_family_index]
 		ResourceType.STONE, ResourceType.GOLD:
 			return ROCK_STAGES
 	return []
