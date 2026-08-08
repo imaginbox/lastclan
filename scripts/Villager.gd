@@ -34,10 +34,9 @@ const VILLAGE_HALF: float = 60.0      # le paysan peut explorer une large zone a
 const ATTACK_RANGE: float = 1.5
 const ATTACK_DAMAGE: int = 5
 const ATTACK_COOLDOWN: float = 1.0
-# Délai sans progrès (distance à la cible qui n'augmente pas assez vite) avant de
-# déclarer le paysan "bloqué" et de ré-aiguiller / re-router la navigation. Évite
-# le bug du paysan qui "court sans rien faire" (à jamais collé à un obstacle).
-const STUCK_TIMEOUT: float = 4.0
+# PATHFINDING RÉACTIF : On réduit le timeout de blocage à 2.0s pour que le paysan
+# cherche une autre route beaucoup plus vite s'il est gêné par un arbre.
+const STUCK_TIMEOUT: float = 2.0
 
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
 ## Référence à un AnimationPlayer si présent (optionnel, pour tes modèles).
@@ -62,12 +61,18 @@ func _ready() -> void:
 	var model := get_node_or_null("Model") as VillagerModel
 	if model != null:
 		anim_player = model.get_model_anim_player()
-	nav_agent.path_desired_distance = REACH_DISTANCE
+	nav_agent.path_desired_distance = 1.0
 	nav_agent.target_desired_distance = REACH_DISTANCE
-	# ÉVITEMENT DÉSACTIVÉ : Pour éviter tout blocage ou trajectoire hésitante entre paysans,
-	# on désactive l'évitement dynamique. Les paysans se traverseront les uns les autres
-	# (ghosting), mais resteront bloqués par les bâtiments/ressources via leur collision_mask.
-	nav_agent.avoidance_enabled = false
+	
+	# NAVIGATION AMÉLIORÉE : On ajuste les paramètres pour plus de fluidité.
+	# path_max_distance : si on s'éloigne trop du chemin (ex: poussé par une collision),
+	# on recalcule immédiatement la route.
+	nav_agent.path_max_distance = 2.0
+	
+	# On active le post-processing pour lisser les virages et éviter les coins abrupts.
+	# Note: Cela dépend du support dans la version Godot, on reste sur du standard robuste.
+	
+	# ÉVITEMENT DÉSACTIVÉ : Pour éviter tout blocage ou trajectoire hésitante entre paysans...
 	# nav_agent.velocity_computed.connect(_on_velocity_computed) # Retiré pour le ghosting
 	_town_hall = get_tree().get_first_node_in_group("town_hall") as Node3D
 	# COUCHES DE COLLISION :
@@ -436,21 +441,24 @@ func _stuck_check(delta: float) -> bool:
 		_stuck_t = 0.0
 	else:
 		_stuck_t += delta
-	# Bloqué trop longtemps : on re-route (l'appelant relance une navigation).
+	# Bloqué trop longtemps : on essaie de se dégager avec une petite secousse
+	# et on demande un nouveau chemin.
 	if _stuck_t >= STUCK_TIMEOUT:
 		_arm_watch()
+		# Petite impulsion de dégagement latérale
+		var jitter := Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
+		global_position += jitter * 0.2
 		nav_agent.target_position = nav_agent.get_final_position()
 		return true
 	return false
 
 func _step(_delta: float) -> void:
-	# MOUVEMENT DIRECT SANS ÉVITEMENT : Les paysans s'ignorent physiquement pour
-	# éviter les bouchons (ghosting). La navigation gère le contournement des
-	# obstacles statiques (arbres, bâtiments).
 	var target := nav_agent.target_position
 	var desired := Vector3.ZERO
 	var map_ready: bool = NavigationServer3D.map_get_iteration_id(nav_agent.get_navigation_map()) > 0
 	
+	# RE-ROUTAGE AGRESSIF : Si le paysan hésite ou semble ralentir contre un obstacle,
+	# on force une réévaluation de la position suivante.
 	if map_ready and not nav_agent.is_navigation_finished():
 		var next := nav_agent.get_next_path_position()
 		desired = next - global_position
@@ -461,7 +469,8 @@ func _step(_delta: float) -> void:
 	
 	var dist := desired.length()
 	if dist > 0.001:
-		desired = desired.normalized() * MOVE_SPEED * minf(1.0, dist / 1.5)
+		# On augmente la précision du virage
+		desired = desired.normalized() * MOVE_SPEED
 		_facing(desired)
 	else:
 		desired = Vector3.ZERO

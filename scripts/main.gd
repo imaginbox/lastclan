@@ -179,9 +179,11 @@ func _bake_navmesh() -> void:
 	# de précision ni d'écart de cell_height.
 	mesh.cell_size = 0.25
 	mesh.cell_height = 0.25
-	mesh.agent_radius = 0.5
-	mesh.agent_height = 1.5
-	mesh.agent_max_climb = 0.25
+	# CELL SIZE : On la réduit drastiquement pour que le navmesh soit très précis.
+	# Cela permet à l'agent_radius de 0.35 d'être parfaitement pris en compte.
+	mesh.cell_size = 0.1
+	mesh.cell_height = 0.1
+	mesh.agent_radius = 0.35
 	# Carve les obstacles dans le navmesh : le sol (couche 2) fournit la surface
 	# marchable, les ressources et bâtiments (couche 1) sont découpés -> les
 	# paysans les contournent via le chemin A* du NavigationAgent3D.
