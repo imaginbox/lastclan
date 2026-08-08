@@ -88,6 +88,10 @@ var _selection_ring: MeshInstance3D = null
 var _tree_family_index: int = -1
 
 func _ready() -> void:
+	# COLLISION RTS : les ressources sont des obstacles physiques (layer 1).
+	collision_layer = 1
+	collision_mask = 0
+	
 	amount = clampi(starting_amount, 0, max_amount)
 	# Détermine une fois pour toutes la famille d'arbres de ce nœud.
 	if resource_type == ResourceType.WOOD:

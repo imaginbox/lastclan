@@ -83,6 +83,10 @@ var _mesh: MeshInstance3D = null
 var _base_material: StandardMaterial3D = null
 
 func _ready() -> void:
+	# COLLISION RTS : les bâtiments sont des obstacles physiques (layer 1).
+	collision_layer = 1
+	collision_mask = 0
+	
 	add_to_group("building")
 	if type == Type.TOWN_HALL:
 		add_to_group("town_hall")

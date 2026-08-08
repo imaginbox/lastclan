@@ -468,39 +468,10 @@ func _on_velocity_computed(safe_velocity: Vector3) -> void:
 func _apply_movement(vel: Vector3) -> void:
 	velocity = vel
 	move_and_slide()
-	# Glissement le long des parois : si on vient de respirer contre un obstacle,
-	# au lieu de rester coincé on suit la tangente pour contourner le coin.
-	_slide_past_obstacle()
 	# Filet de sécurité : on reste dans la zone jouable autour de la base du joueur.
 	var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
 	global_position.x = clampf(global_position.x, base.x - VILLAGE_HALF - 2.0, base.x + VILLAGE_HALF + 2.0)
 	global_position.z = clampf(global_position.z, base.z - VILLAGE_HALF - 2.0, base.z + VILLAGE_HALF + 2.0)
-
-## Glissement de contournement : après un déplacement, si on a frotté contre une
-## surface (bâtiment / ressource), on pousse orthogonalement pour dévier autour du
-## coin au lieu de rester bloqué à foncer dans l'obstacle.
-func _slide_past_obstacle() -> void:
-	if get_slide_collision_count() <= 0:
-		return
-	var normal := Vector3.ZERO
-	for i in get_slide_collision_count():
-		normal += get_slide_collision(i).get_normal()
-	normal.y = 0.0
-	if normal.length_squared() < 0.0001:
-		return
-	normal = normal.normalized()
-	# Direction vers la cible : on veut avancer même quand on longe une paroi.
-	var to_target := nav_agent.target_position - global_position
-	to_target.y = 0.0
-	var forward := to_target.normalized() if to_target.length() > 0.001 else Vector3.FORWARD
-	# Tant qu'on est coincé contre la paroi, on longe sa tangente pour la contourner.
-	if velocity.dot(normal) < 0.0 or global_position.distance_to(nav_agent.target_position) > REACH_DISTANCE:
-		var tangent: Vector3 = Vector3(-normal.z, 0.0, normal.x)
-		if tangent.dot(forward) < 0.0:
-			tangent = -tangent
-		global_position += tangent * 0.1
-		# Réarme le filet : on a bougé, on n'est plus "bloqué".
-		_arm_watch()
 
 func _facing(dir: Vector3) -> void:
 	if dir.length_squared() > 0.0001:

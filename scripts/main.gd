@@ -339,19 +339,10 @@ func _spawn_decor() -> void:
 		d.rotation_degrees.y = randf_range(0, 360)
 		var s := randf_range(0.7, 1.4)
 		d.scale = Vector3(s, s, s)
-	# Arbres décoratifs : moins nombreux, plus grands, plus éloignés.
-	for i in 60:
-		var pos := _random_decor_pos_tree()
-		if pos == Vector3.INF:
-			continue
-		var d := Decor.new()
-		d.build_tree()
-		d.add_to_group("decor")
-		decor_root.add_child(d)
-		d.global_position = pos
-		d.rotation_degrees.y = randf_range(0, 360)
-		var s := randf_range(0.4, 0.7)
-		d.scale = Vector3(s, s, s)
+	# Arbres décoratifs : SUPPRIMÉS. 
+	# Tous les arbres du monde sont désormais des ResourceNode récoltables.
+	# Le joueur a demandé à diminuer le nombre d'arbres et à les rendre tous récoltables.
+	pass
 
 ## Position libre pour une décoration, avec une densité qui décroît avec la
 ## distance à la base (le monde est plus vivant près du joueur).
