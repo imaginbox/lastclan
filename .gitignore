@@ -1,0 +1,19 @@
+# Cache et fichiers Godot
+.godot/
+*.translation
+*.uid.bak
+
+# Dossier d'export (régénéré automatiquement par GitHub Actions)
+build/
+
+# Addons éditeur uniquement (pas nécessaires au jeu, gros binaires)
+addons/ziva_agent/
+addons/godot_ai/
+
+# Divers
+export.cfg
+*.tmp
+*.log
+# Dossiers de sauvegarde temporaires
+.git-/
+.github-/

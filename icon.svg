@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" fill="#1c1c1c"/>
+  <rect x="24" y="28" width="80" height="64" rx="6" fill="#cda245" stroke="#8a6a1f" stroke-width="4"/>
+  <path d="M24 40 L64 60 L104 40" fill="none" stroke="#8a6a1f" stroke-width="4"/>
+  <rect x="54" y="52" width="20" height="40" fill="#6b4a1f"/>
+  <text x="64" y="112" font-family="Arial" font-size="14" fill="#e0d6b0" text-anchor="middle">THE LAST CLAN</text>
+</svg>

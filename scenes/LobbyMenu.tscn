@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://bj32afew6kjhn"]
+
+[ext_resource type="Script" uid="uid://bhwc45ni2p3gl" path="res://scripts/LobbyMenu.gd" id="1_lobbymenu"]
+
+[node name="LobbyMenu" type="Control" unique_id=116842609]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_lobbymenu")

@@ -1,0 +1,220 @@
+class_name ResourceNode
+extends StaticBody3D
+
+## ResourceNode — nœud de ressource (mine d'or, arbre à bois, carrière de pierre).
+## Utilise les modèles 3D fournis (arbres pour le bois, rochers pour la pierre,
+## rocher doré pour l'or). Chaque type propose plusieurs variantes triées du PLUS
+## GRAND (ressource pleine) au PLUS PETIT (ressource presque épuisée) : au fil des
+## récoltes, le modèle échange de variante pour montrer visuellement l'épuisement.
+## Quand la ressource est vide, elle disparaît (émet `depleted`, le monde la fait
+## réapparaître ailleurs).
+
+signal depleted ## Émis quand la ressource est épuisée (quantité <= 0).
+
+enum ResourceType { GOLD, WOOD, STONE }
+
+## Vitesse de régénération (unités par seconde).
+const REGEN_RATE: float = 0.5
+
+# --- Pools de modèles (variantes triées du plus grand au plus petit) ---
+const TREE_FAMILIES: Array[Array] = [
+	[
+		preload("res://assets/models/Mes assets/Assets/tree1/Tree_1_C_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree1/Tree_1_B_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree1/Tree_1_A_Color1.gltf"),
+	],
+	[
+		preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_E_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_D_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_C_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_B_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_A_Color1.gltf"),
+	],
+	[
+		preload("res://assets/models/Mes assets/Assets/tree3/Tree_5_F_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree3/Tree_5_E_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree3/Tree_5_C_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree3/Tree_5_B_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree3/Tree_5_D_Color1.gltf"),
+		preload("res://assets/models/Mes assets/Assets/tree3/Tree_5_A_Color1.gltf"),
+	],
+]
+
+## Variantes de rocher pour la pierre (et l'or), du plus grand au plus petit.
+const ROCK_STAGES: Array[PackedScene] = [
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_K_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_L_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_J_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_I_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_G_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_H_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_D_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_E_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_F_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_A_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_B_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_C_Color1.gltf"),
+]
+
+@export var resource_type: ResourceType = ResourceType.GOLD
+@export var max_amount: int = 100
+@export var starting_amount: int = 100
+
+## Quantité restante (lecture publique).
+var amount: int
+## Nombre de récoltes simultanées en cours (pour différer la destruction).
+var busy_workers: int = 0
+## Échelle appliquée au modèle (ajustée selon le type pour cadrer au monde).
+var model_scale: float = 1.0
+
+var _model_root: Node3D = null
+var _current_stage: int = -1
+
+func _ready() -> void:
+	amount = clampi(starting_amount, 0, max_amount)
+	_build_model_root()
+	_setup_collision()
+	_update_visual()
+
+func _process(delta: float) -> void:
+	# Régénération lente : tant que le nœud existe, sa quantité remonte.
+	if amount < max_amount and amount > 0:
+		amount = mini(max_amount, amount + int(REGEN_RATE * delta))
+		_update_visual()
+
+## Crée le conteneur du modèle (les variantes s'échangent à l'intérieur).
+func _build_model_root() -> void:
+	_model_root = Node3D.new()
+	_model_root.name = "Model"
+	add_child(_model_root)
+	# Échelle du modèle selon le type (les arbres sont grands, les rochers fins).
+	match resource_type:
+		ResourceType.WOOD:
+			model_scale = 0.55
+		ResourceType.STONE:
+			model_scale = 1.0
+		ResourceType.GOLD:
+			model_scale = 1.0
+	_model_root.scale = Vector3.ONE * model_scale
+
+## Configure la collision de façon adaptée à la taille du modèle.
+func _setup_collision() -> void:
+	var cs := get_node_or_null("CollisionShape3D") as CollisionShape3D
+	if cs == null:
+		return
+	match resource_type:
+		ResourceType.WOOD:
+			cs.shape = BoxShape3D.new()
+			(cs.shape as BoxShape3D).size = Vector3(1.8, 3.0, 1.8)
+			cs.position = Vector3(0, 1.5, 0)
+		ResourceType.STONE, ResourceType.GOLD:
+			cs.shape = BoxShape3D.new()
+			(cs.shape as BoxShape3D).size = Vector3(1.6, 1.6, 1.6)
+			cs.position = Vector3(0, 0.8, 0)
+
+## Récolte [count] unités. Renvoie la quantité réellement prélevée (0 si vide).
+func harvest(count: int) -> int:
+	if amount <= 0:
+		return 0
+	var taken := mini(count, amount)
+	amount -= taken
+	_update_visual()
+	if amount <= 0:
+		depleted.emit()
+	return taken
+
+## Nombre de nœuds encore présents (pour le directeur du monde).
+func exists() -> bool:
+	return amount > 0
+
+## Renvoie true tant qu'il reste de la ressource.
+func has_left() -> bool:
+	return amount > 0
+
+## Nom affichable du type de ressource.
+func display_name() -> String:
+	match resource_type:
+		ResourceType.GOLD: return "Or"
+		ResourceType.WOOD: return "Bois"
+		ResourceType.STONE: return "Pierre"
+	return "?"
+
+## Met à jour le visuel : choisit la variante de modèle selon la quantité restante.
+## ratio 1.0 → variante la plus grande (pleine), ratio ~0 → la plus petite (épuisée).
+func _update_visual() -> void:
+	var ratio: float = minf(1.0, float(amount) / float(max_amount)) if max_amount > 0 else 0.0
+	if ratio <= 0.0:
+		visible = false
+		return
+	visible = true
+	var stages := _stages()
+	if stages.is_empty():
+		return
+	var stage := _stage_for_ratio(ratio, stages.size())
+	if stage != _current_stage:
+		_current_stage = stage
+		_swap_model(stages[stage])
+
+## Renvoie la liste des variantes de modèle pour ce type (grand → petit).
+func _stages() -> Array:
+	match resource_type:
+		ResourceType.WOOD:
+			return TREE_FAMILIES[randi() % TREE_FAMILIES.size()]
+		ResourceType.STONE, ResourceType.GOLD:
+			return ROCK_STAGES
+	return []
+
+## Assigne un indice de stage (0..n-1) depuis un ratio (1.0 → 0, 0.0 → n-1).
+func _stage_for_ratio(ratio: float, n: int) -> int:
+	if n <= 1:
+		return 0
+	var idx := int((1.0 - ratio) * float(n - 1))
+	return clampi(idx, 0, n - 1)
+
+## Remplace le modèle courant par la variante donnée.
+func _swap_model(stage: PackedScene) -> void:
+	if _model_root == null:
+		return
+	for child in _model_root.get_children():
+		child.queue_free()
+	var inst: Node = stage.instantiate()
+	_model_root.add_child(inst)
+	# Applique la texture forêt aux modèles (bois/pierre) : les .gltf référencent
+	# forest_texture.png par un chemin relatif qui ne se résout pas, on l'applique
+	# donc explicitement. L'or reçoit un matériau doré à la place.
+	match resource_type:
+		ResourceType.GOLD:
+			_make_gold(inst)
+		ResourceType.WOOD, ResourceType.STONE:
+			_apply_forest_texture(inst)
+
+## Texture forêt partagée (chargée une seule fois).
+var _forest_tex: Texture2D = null
+
+## Applique la texture forêt à tous les meshes du modèle.
+func _apply_forest_texture(node: Node) -> void:
+	if _forest_tex == null:
+		_forest_tex = load("res://assets/models/Mes assets/Textures/forest_texture.png") as Texture2D
+	for mi in _collect_meshes(node):
+		var mesh := mi as MeshInstance3D
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = _forest_tex
+		mat.roughness = 0.8
+		mat.metallic = 0.0
+		mesh.material_override = mat
+
+## Applique un matériau doré à tous les meshes du modèle (source d'or).
+func _make_gold(node: Node) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.95, 0.8, 0.25)
+	mat.metallic = 0.7
+	mat.roughness = 0.3
+	for mi in _collect_meshes(node):
+		(mi as MeshInstance3D).material_override = mat
+
+func _collect_meshes(node: Node, acc: Array = []) -> Array:
+	if node is MeshInstance3D:
+		acc.append(node)
+	for c in node.get_children():
+		acc = _collect_meshes(c, acc)
+	return acc
