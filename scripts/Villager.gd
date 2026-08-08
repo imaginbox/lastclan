@@ -136,6 +136,16 @@ func _begin_gather(resource_node: ResourceNode) -> void:
 	var approach := resource_node.global_position
 	approach.x += randf_range(-0.9, 0.9)
 	approach.z += randf_range(-0.9, 0.9)
+	# La ressource est découpée comme obstacle dans le navmesh : si le point
+	# aléatoire tombe dans cet obstacle, aucun chemin n'existe et le paysan reste
+	# bloqué au bord. On projette donc le point sur le navmesh -> il atterrit juste
+	# sur le bord atteignable de la source, toujours accessible (REACH_DISTANCE couvre).
+	var nav_map := get_world_3d().navigation_map
+	# Ne projette sur le navmesh que si la carte est synchronisée (sinon la requête
+	# échoue avec "before first map synchronization"). Sinon on garde le point brut,
+	# la navigation se rajustera naturellement dès que le navmesh sera prêt.
+	if NavigationServer3D.map_is_active(nav_map) and NavigationServer3D.map_get_iteration_id(nav_map) > 0:
+		approach = NavigationServer3D.map_get_closest_point(nav_map, approach)
 	nav_agent.target_position = approach
 	set_state(State.GOING_TO_RESOURCE)
 

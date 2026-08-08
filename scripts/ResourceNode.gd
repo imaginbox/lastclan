@@ -95,9 +95,14 @@ func _build_selection_ring() -> void:
 	mat.emission_enabled = true
 	mat.emission = Color(0.95, 1.0, 0.35)
 	mat.emission_energy = 2.5
+	# Rayon du cercle adapté à l'empreinte réelle de l'objet : il doit épouser la
+	# base de l'arbre / du rocher. Auparavant trop grand (1.4–1.6), le cercle
+	# entourait un espace vide et l'objet paraissait décentré dedans.
+	var inner_r: float = 1.0
+	var outer_r: float = 1.15
 	var torus := TorusMesh.new()
-	torus.inner_radius = 1.4
-	torus.outer_radius = 1.6
+	torus.inner_radius = inner_r
+	torus.outer_radius = outer_r
 	torus.rings = 48
 	torus.ring_segments = 24
 	_selection_ring = MeshInstance3D.new()
