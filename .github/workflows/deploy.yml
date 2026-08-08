@@ -24,32 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Godot (4.7.1)
+      - name: Setup Godot (4.7.1 + export templates)
         uses: chickensoft-games/setup-godot@v2
         with:
           version: 4.7.1
           use-dotnet: false
+          include-templates: true
 
-      - name: Install Godot export templates
-        run: |
-          set -e
-          export TEMPLATES_DIR="$HOME/.local/share/godot/export_templates"
-          rm -rf "$TEMPLATES_DIR"
-          mkdir -p "$TEMPLATES_DIR"
-          echo "→ Téléchargement des templates d'export 4.7.1…"
-          wget -q "https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_export_templates.tpz" -O /tmp/templates.tpz
-          echo "→ Extraction…"
-          cd "$TEMPLATES_DIR"
-          unzip -o -q /tmp/templates.tpz
-          # Le .tpz contient soit templates/4.7.1.stable/ soit 4.7.1.stable/
-          if [ -d "$TEMPLATES_DIR/templates" ]; then
-            mv "$TEMPLATES_DIR/templates/4.7.1.stable" "$TEMPLATES_DIR/4.7.1.stable"
-          fi
-          echo "→ Vérification des templates web :"
-          ls -la "$TEMPLATES_DIR/4.7.1.stable/" | grep -E "web_|linux_|windows_" || true
-          echo "→ Template web release présent :"
-          test -f "$TEMPLATES_DIR/4.7.1.stable/web_nothreads_release.zip" && echo "OK web_nothreads_release.zip"
-
+      # Importe les ressources (crée le cache .godot indispensable à l'export).
       - name: Import Godot resources
         run: |
           godot --headless --path "$GITHUB_WORKSPACE" --import --quit || true
