@@ -32,10 +32,11 @@ func _build() -> void:
 		return
 	_model = base.instantiate()
 	_model.name = "Model"
-	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.8m.
-	# Avec la gravité activée dans Villager.gd, 0.8m place les pieds
-	# exactement au contact du sol.
-	_model.position.y = 0.8
+	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.65m.
+	# Les capsules font 1.6m, donc 0.8m est le centre. En mettant 0.65m,
+	# on force les pieds à s'enfoncer plus profondément dans le sol physique,
+	# ce qui garantit visuellement qu'il ne flotte pas sur les pentes.
+	_model.position.y = 0.65
 	add_child(_model)
 	_apply_tint()
 	_anim_player = _model.get_node_or_null("AnimationPlayer") as AnimationPlayer

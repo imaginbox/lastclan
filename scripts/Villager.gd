@@ -27,9 +27,9 @@ const GATHER_TIME: float = 2.0
 # Anciennement 1.2, trop juste pour les arbres : le paysan restait bloqué au
 # bord sans jamais déclencher la récolte.
 # Distance de portée : ajustée à 2.2 pour être proche de la source sans coller.
-const REACH_DISTANCE: float = 2.2
-# Rayon de livraison à l'hôtel de ville : ajusté à 2.6 pour un visuel propre.
-const DELIVER_DISTANCE: float = 2.6
+const REACH_DISTANCE: float = 0.15
+# Rayon de livraison à l'hôtel de ville : ajusté à 2.0 pour un visuel propre.
+const DELIVER_DISTANCE: float = 2.0
 const VILLAGE_HALF: float = 60.0      # le paysan peut explorer une large zone autour de sa base
 const ATTACK_RANGE: float = 1.5
 const ATTACK_DAMAGE: int = 5
@@ -61,8 +61,8 @@ func _ready() -> void:
 	var model := get_node_or_null("Model") as VillagerModel
 	if model != null:
 		anim_player = model.get_model_anim_player()
-	nav_agent.path_desired_distance = 1.0
-	nav_agent.target_desired_distance = REACH_DISTANCE
+	nav_agent.path_desired_distance = 0.1
+	nav_agent.target_desired_distance = 0.1
 	
 	# NAVIGATION AMÉLIORÉE : On ajuste les paramètres pour plus de fluidité.
 	# path_max_distance : si on s'éloigne trop du chemin (ex: poussé par une collision),
@@ -89,9 +89,9 @@ func _physics_process(delta: float) -> void:
 	
 	# GRAVITÉ : On applique la gravité par défaut pour que le paysan tombe sur le sol.
 	if not is_on_floor():
-		velocity.y -= 9.8 * delta
+		velocity.y -= 20.0 * delta # Gravité plus forte pour plaquer au sol
 	else:
-		velocity.y = 0.0 # Stoppe la chute une fois au sol
+		velocity.y = -2.0 # Pression constante vers le bas
 	
 	# GESTION DES ANIMATIONS SELON LE MOUVEMENT RÉEL
 	# Si on est censé courir mais qu'on ne bouge pas (bloqué contre un mur/arbre),
