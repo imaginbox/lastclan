@@ -88,6 +88,14 @@ func _ready() -> void:
 		add_to_group("town_hall")
 	# Construit le visuel + la collision selon l'empreinte.
 	_build_visual()
+	# Obstacle d'évitement : dit au NavigationAgent3D qu'il doit CONTOURNER ce
+	# bâtiment (l'évitement temps réel ne voit pas les colliders physiques, il a
+	# besoin d'un NavigationObstacle3D dynamique pour pousser les paysans autour).
+	var obs := NavigationObstacle3D.new()
+	obs.name = "NavObstacle"
+	obs.radius = float(footprint()) * 0.5
+	obs.affect_navigation_mesh = false  # le navmesh est déjà carvé à la cuisson
+	add_child(obs)
 	hp = max_hp
 
 func _process(delta: float) -> void:

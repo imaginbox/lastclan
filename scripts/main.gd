@@ -288,7 +288,7 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 			break
 		pos.x = clampf(pos.x + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
 		pos.z = clampf(pos.z + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
-	var types := [ResourceNode.ResourceType.GOLD, ResourceNode.ResourceType.WOOD, ResourceNode.ResourceType.STONE]
+	var types := [ResourceNode.ResourceType.GOLD, ResourceNode.ResourceType.WOOD, ResourceNode.ResourceType.STONE, ResourceNode.ResourceType.FOOD]
 	var t: ResourceNode.ResourceType
 	if forced_type >= 0:
 		t = forced_type as ResourceNode.ResourceType
@@ -303,6 +303,8 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 			node.set("max_amount", 80)
 		ResourceNode.ResourceType.STONE:
 			node.set("max_amount", 60)
+		ResourceNode.ResourceType.FOOD:
+			node.set("max_amount", 40)
 	node.set("starting_amount", node.get("max_amount"))
 	node.add_to_group("resource")
 	resource_root.add_child(node)

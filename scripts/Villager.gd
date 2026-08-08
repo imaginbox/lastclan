@@ -34,6 +34,10 @@ const VILLAGE_HALF: float = 60.0      # le paysan peut explorer une large zone a
 const ATTACK_RANGE: float = 1.5
 const ATTACK_DAMAGE: int = 5
 const ATTACK_COOLDOWN: float = 1.0
+# Délai sans progrès (distance à la cible qui n'augmente pas assez vite) avant de
+# déclarer le paysan "bloqué" et de ré-aiguiller / re-router la navigation. Évite
+# le bug du paysan qui "court sans rien faire" (à jamais collé à un obstacle).
+const STUCK_TIMEOUT: float = 4.0
 
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
 ## Référence à un AnimationPlayer si présent (optionnel, pour tes modèles).
@@ -46,6 +50,10 @@ var _gather_timer: float = 0.0
 var _assigned_attack: Node3D = null
 var _attack_cd: float = 0.0
 var _town_hall: Node3D = null
+# --- Filet anti-blocage : détecte l'absence de progression vers la cible ---
+var _stuck_t: float = 0.0
+var _last_dist: float = INF
+var _watch_armed: bool = false
 
 func _ready() -> void:
 	# AnimationPlayer : le modèle (VillagerModel) construit son AnimationPlayer
@@ -56,6 +64,11 @@ func _ready() -> void:
 		anim_player = model.get_model_anim_player()
 	nav_agent.path_desired_distance = REACH_DISTANCE
 	nav_agent.target_desired_distance = REACH_DISTANCE
+	# Évitement temps réel : le paysan dévie AUTOUR des obstacles/autres unités au
+	# lieu de foncer dedans. Le signal velocity_computed fournit la vitesse sûre.
+	nav_agent.avoidance_enabled = true
+	nav_agent.radius = 0.4
+	nav_agent.velocity_computed.connect(_on_velocity_computed)
 	_town_hall = get_tree().get_first_node_in_group("town_hall") as Node3D
 	# Le paysan ne percute que les obstacles/unités (couche 1), pas le sol (couche 2).
 	collision_mask = 1
@@ -123,6 +136,7 @@ func move_to_point(point: Vector3) -> void:
 	_assigned_resource = null
 	_assigned_attack = null
 	nav_agent.target_position = point
+	_arm_watch()
 	set_state(State.MOVING)
 
 ## --- Logique interne ---
@@ -147,12 +161,20 @@ func _begin_gather(resource_node: ResourceNode) -> void:
 	if NavigationServer3D.map_is_active(nav_map) and NavigationServer3D.map_get_iteration_id(nav_map) > 0:
 		approach = NavigationServer3D.map_get_closest_point(nav_map, approach)
 	nav_agent.target_position = approach
+	_arm_watch()
 	set_state(State.GOING_TO_RESOURCE)
 
 func _move_to_target(delta: float) -> void:
-	# Arrivée basée sur la distance réelle (robuste) plutôt que sur le drapeau
-	# "is_navigation_finished" (peu fiable juste après un changement de cible).
-	if global_position.distance_to(nav_agent.target_position) <= REACH_DISTANCE:
+	# Filet anti-blocage : si le paysan n'avance plus vers sa cible (STUCK_TIMEOUT
+	# sans progrès), on passe à la tâche suivante pour ne jamais rester à "courir
+	# sans rien faire". _stuck_check a déjà re-routé une fois la navigation.
+	if _stuck_check(delta):
+		_select_next_task()
+		return
+	# Arrivée basée sur la distance HORIZONTALE (plan XZ) : le terrain en gradins
+	# donne une différence de hauteur Y qui gonflerait la distance 3D et empêcherait
+	# d'atteindre REACH_DISTANCE même juste à côté de la ressource.
+	if _hdist(nav_agent.target_position) <= REACH_DISTANCE:
 		if _assigned_resource != null and _assigned_resource.has_left():
 			_gather_timer = 0.0
 			set_state(State.GATHERING)
@@ -180,9 +202,16 @@ func _return_to_townhall(delta: float) -> void:
 	if _town_hall == null:
 		_select_next_task()
 		return
+	# Filet anti-blocage : si le paysan n'arrive plus à l'hôtel de ville, on livre
+	# quand même (le dépôt touche l'économie) pour ne pas rester bloqué à courir.
+	if _stuck_check(delta):
+		resource_delivered.emit(_carried_type, 1)
+		_select_next_task()
+		return
 	# Dépôt effectué dès que le paysan est assez près de l'hôtel de ville
-	# (au bord de la bâtisse, pas à son centre). -> enchaînement automatique.
-	if global_position.distance_to(_town_hall.global_position) <= DELIVER_DISTANCE:
+	# (au bord de la bâtisse, pas à son centre). Distance HORIZONTALE : la hauteur
+	# Y de la bâtisse ne doit pas empêcher la livraison.
+	if _hdist(_town_hall.global_position) <= DELIVER_DISTANCE:
 		resource_delivered.emit(_carried_type, 1)
 		_select_next_task()
 		return
@@ -220,6 +249,7 @@ func _resource_color(t: ResourceNode.ResourceType) -> Color:
 		ResourceNode.ResourceType.GOLD: return Color(1.0, 0.85, 0.3)   # or
 		ResourceNode.ResourceType.WOOD: return Color(0.55, 0.9, 0.4)   # bois/vert
 		ResourceNode.ResourceType.STONE: return Color(0.8, 0.82, 0.88) # pierre
+		ResourceNode.ResourceType.FOOD: return Color(0.9, 0.25, 0.25)  # nourri./rouge
 	return Color.WHITE
 
 ## Ajoute la récolte à l'économie de la ville selon son type.
@@ -233,6 +263,8 @@ func _add_harvest_to_city(taken: int) -> void:
 			ResourceManager.add_wood(taken)
 		ResourceNode.ResourceType.STONE:
 			ResourceManager.add_stone(taken)
+		ResourceNode.ResourceType.FOOD:
+			ResourceManager.add_food(taken)
 
 ## Choix intelligent de la ressource suivante.
 ## Loi simple d'émergence : le paysan vise le type de ressource le plus rare dans
@@ -268,6 +300,9 @@ func _scarcest_type() -> ResourceNode.ResourceType:
 	if stone < worst:
 		worst = stone
 		worst_type = ResourceNode.ResourceType.STONE
+	if ResourceManager.food < worst:
+		worst = ResourceManager.food
+		worst_type = ResourceNode.ResourceType.FOOD
 	return worst_type
 
 func _move_to_attack(delta: float) -> void:
@@ -276,14 +311,14 @@ func _move_to_attack(delta: float) -> void:
 		_select_next_task()
 		return
 	nav_agent.target_position = _assigned_attack.global_position
-	if global_position.distance_to(_assigned_attack.global_position) <= ATTACK_RANGE:
+	if _hdist(_assigned_attack.global_position) <= ATTACK_RANGE:
 		set_state(State.ATTACKING)
 		return
 	_step(delta)
 
 func _attack(_delta: float) -> void:
 	if _assigned_attack != null and is_instance_valid(_assigned_attack):
-		if global_position.distance_to(_assigned_attack.global_position) > ATTACK_RANGE:
+		if _hdist(_assigned_attack.global_position) > ATTACK_RANGE:
 			nav_agent.target_position = _assigned_attack.global_position
 			set_state(State.GOING_TO_ATTACK)
 			return
@@ -295,39 +330,123 @@ func _attack(_delta: float) -> void:
 		_select_next_task()
 
 func _move_to_point_state(delta: float) -> void:
-	# Se rend au point demandé puis passe au repos (IDLE).
-	if global_position.distance_to(nav_agent.target_position) <= REACH_DISTANCE:
+	# Filet anti-blocage : si le paysan ne peut pas atteindre le point demandé
+	# (ex. point dans un obstacle/un trou), on s'arrête au repos au lieu de
+	# courir indéfiniment dans le vide.
+	if _stuck_check(delta):
+		set_state(State.IDLE)
+		return
+	# Se rend au point demandé puis passe au repos (IDLE). Distance horizontale :
+	# la hauteur Y ne doit pas empêcher de considérer le point comme atteint.
+	if _hdist(nav_agent.target_position) <= REACH_DISTANCE:
 		set_state(State.IDLE)
 		return
 	_step(delta)
 
+## Distance HORIZONTALE (plan XZ) jusqu'à un point. Les vérifications d'arrivée
+## utilisent cette distance plutôt que la distance 3D : sur le terrain en gradins,
+## une ressource sur une butte et un paysan en contrebas ont une différence de
+## hauteur Y qui interdisait à la distance 3D de descendre sous REACH_DISTANCE,
+## le paysan "courait sans rien faire" à jamais juste à côté de sa cible.
+func _hdist(pt: Vector3) -> float:
+	var dx: float = pt.x - global_position.x
+	var dz: float = pt.z - global_position.z
+	return sqrt(dx * dx + dz * dz)
+
+## Réarme la surveillance de progression (appelé quand la cible change).
+func _arm_watch() -> void:
+	_stuck_t = 0.0
+	_last_dist = INF
+	_watch_armed = true
+
+## Renvoie true si le paysan n'a pas progressé vers sa cible depuis STUCK_TIMEOUT.
+## L'appelant ré-aiguille/re-route alors la navigation pour le débloquer.
+func _stuck_check(delta: float) -> bool:
+	if not _watch_armed:
+		return false
+	var d: float = _hdist(nav_agent.target_position)
+	if d < _last_dist - 0.02:
+		_last_dist = d
+		_stuck_t = 0.0
+	else:
+		_stuck_t += delta
+	# Bloqué trop longtemps : on re-route (l'appelant relance une navigation).
+	if _stuck_t >= STUCK_TIMEOUT:
+		_arm_watch()
+		nav_agent.target_position = nav_agent.get_final_position()
+		return true
+	return false
+
 func _step(_delta: float) -> void:
 	# Suit le chemin calculé par le NavigationAgent3D (A* sur le navmesh) : le
 	# paysan contourne les obstacles (bâtiments, ressources) au lieu de marcher
-	# en ligne droite. Petit ralentissement en approche de la destination.
+	# en ligne droite. Petite ralentissement en approche de la destination.
 	var target := nav_agent.target_position
-	var dir := Vector3.ZERO
+	var desired := Vector3.ZERO
 	var map_ready: bool = NavigationServer3D.map_get_iteration_id(nav_agent.get_navigation_map()) > 0
 	if map_ready and not nav_agent.is_navigation_finished():
 		var next := nav_agent.get_next_path_position()
-		dir = next - global_position
-		dir.y = 0.0
+		desired = next - global_position
+		desired.y = 0.0
 	else:
 		# Repli : navmesh absent/indisponible → marche en ligne droite vers la cible.
-		dir = target - global_position
-		dir.y = 0.0
-	var dist := dir.length()
+		desired = target - global_position
+		desired.y = 0.0
+	var dist := desired.length()
 	if dist > 0.001:
-		dir = dir.normalized()
-		velocity = dir * MOVE_SPEED * minf(1.0, dist / 1.5)
-		_facing(dir)
+		desired = desired.normalized() * MOVE_SPEED * minf(1.0, dist / 1.5)
+		_facing(desired)
 	else:
-		velocity = Vector3.ZERO
+		desired = Vector3.ZERO
+	# Évitement temps réel : NAVAgent renvoie une vitesse sûre qui dévie autour
+	# des obstacles (bâtiments, ressources, autres unités) pour ne pas rester
+	# collé/bouché. `velocity_computed` applique cette vitesse sûre. Sans carte
+	# prête, on applique directement la vitesse demandée.
+	if nav_agent.avoidance_enabled and map_ready:
+		nav_agent.set_velocity(desired)
+		return
+	_apply_movement(desired)
+
+# Vitesse sûre recalculée par l'évitement ; on l'applique immédiatement.
+func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	_apply_movement(safe_velocity)
+
+func _apply_movement(vel: Vector3) -> void:
+	velocity = vel
 	move_and_slide()
+	# Glissement le long des parois : si on vient de respirer contre un obstacle,
+	# au lieu de rester coincé on suit la tangente pour contourner le coin.
+	_slide_past_obstacle()
 	# Filet de sécurité : on reste dans la zone jouable autour de la base du joueur.
 	var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
 	global_position.x = clampf(global_position.x, base.x - VILLAGE_HALF - 2.0, base.x + VILLAGE_HALF + 2.0)
 	global_position.z = clampf(global_position.z, base.z - VILLAGE_HALF - 2.0, base.z + VILLAGE_HALF + 2.0)
+
+## Glissement de contournement : après un déplacement, si on a frotté contre une
+## surface (bâtiment / ressource), on pousse orthogonalement pour dévier autour du
+## coin au lieu de rester bloqué à foncer dans l'obstacle.
+func _slide_past_obstacle() -> void:
+	if get_slide_collision_count() <= 0:
+		return
+	var normal := Vector3.ZERO
+	for i in get_slide_collision_count():
+		normal += get_slide_collision(i).get_normal()
+	normal.y = 0.0
+	if normal.length_squared() < 0.0001:
+		return
+	normal = normal.normalized()
+	# Direction vers la cible : on veut avancer même quand on longe une paroi.
+	var to_target := nav_agent.target_position - global_position
+	to_target.y = 0.0
+	var forward := to_target.normalized() if to_target.length() > 0.001 else Vector3.FORWARD
+	# Tant qu'on est coincé contre la paroi, on longe sa tangente pour la contourner.
+	if velocity.dot(normal) < 0.0 or global_position.distance_to(nav_agent.target_position) > REACH_DISTANCE:
+		var tangent: Vector3 = Vector3(-normal.z, 0.0, normal.x)
+		if tangent.dot(forward) < 0.0:
+			tangent = -tangent
+		global_position += tangent * 0.1
+		# Réarme le filet : on a bougé, on n'est plus "bloqué".
+		_arm_watch()
 
 func _facing(dir: Vector3) -> void:
 	if dir.length_squared() > 0.0001:

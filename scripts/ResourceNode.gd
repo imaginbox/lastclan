@@ -11,7 +11,7 @@ extends StaticBody3D
 
 signal depleted ## Émis quand la ressource est épuisée (quantité <= 0).
 
-enum ResourceType { GOLD, WOOD, STONE }
+enum ResourceType { GOLD, WOOD, STONE, FOOD }
 
 ## Vitesse de régénération (unités par seconde).
 const REGEN_RATE: float = 0.5
@@ -41,6 +41,16 @@ const TREE_FAMILIES: Array[Array] = [
 ]
 
 ## Variantes de rocher pour la pierre (et l'or), du plus grand au plus petit.
+## Arbres fruitiers (nourriture à récolter), du plus grand au plus petit.
+## On réutilise les modèles d'arbres tree2, bien visibles à la caméra.
+const FOOD_STAGES: Array[PackedScene] = [
+	preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_E_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_D_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_C_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_B_Color1.gltf"),
+	preload("res://assets/models/Mes assets/Assets/tree2/Tree_2_A_Color1.gltf"),
+]
+
 const ROCK_STAGES: Array[PackedScene] = [
 	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_K_Color1.gltf"),
 	preload("res://assets/models/Mes assets/Assets/rock1/Rock_1_L_Color1.gltf"),
@@ -109,8 +119,10 @@ func _build_selection_ring() -> void:
 	_selection_ring.name = "SelectionRing"
 	_selection_ring.mesh = torus
 	_selection_ring.material_override = mat
-	# Couche plat à plat sur le sol (le tore est dans le plan XY par défaut).
-	_selection_ring.rotation_degrees.x = 90.0
+	# Le TorusMesh est DÉJÀ plat dans le plan horizontal (AABB 2.3 x 0.15 x 2.3,
+	# l'épaisseur 0.15 est sur Y, l'axe du trou est Y). Le tourner de 90° sur X le
+	# redressait à la verticale (cercle "mal orienté" debout au lieu d'une couronne
+	# au sol). On ne le tourne donc PAS.
 	_selection_ring.position.y = 0.12
 	_selection_ring.visible = false
 	add_child(_selection_ring)
@@ -148,6 +160,8 @@ func _build_model_root() -> void:
 			model_scale = 1.0
 		ResourceType.GOLD:
 			model_scale = 1.0
+		ResourceType.FOOD:
+			model_scale = 0.7
 	_model_root.scale = Vector3.ONE * model_scale
 
 ## Configure la collision de façon adaptée à la taille du modèle.
@@ -155,15 +169,31 @@ func _setup_collision() -> void:
 	var cs := get_node_or_null("CollisionShape3D") as CollisionShape3D
 	if cs == null:
 		return
+	var full := 1.6  # largeur de l'empreinte (x/z) selon le type
 	match resource_type:
 		ResourceType.WOOD:
+			full = 1.8
 			cs.shape = BoxShape3D.new()
 			(cs.shape as BoxShape3D).size = Vector3(1.8, 3.0, 1.8)
 			cs.position = Vector3(0, 1.5, 0)
 		ResourceType.STONE, ResourceType.GOLD:
+			full = 1.6
 			cs.shape = BoxShape3D.new()
 			(cs.shape as BoxShape3D).size = Vector3(1.6, 1.6, 1.6)
 			cs.position = Vector3(0, 0.8, 0)
+		ResourceType.FOOD:
+			full = 1.8
+			cs.shape = BoxShape3D.new()
+			(cs.shape as BoxShape3D).size = Vector3(1.8, 2.5, 1.8)
+			cs.position = Vector3(0, 1.25, 0)
+	# Obstacle d'évitement : dit au NavigationAgent3D qu'il doit CONTOURNER cette
+	# ressource (l'évitement temps réel ne voit pas les colliders physiques, il a
+	# besoin d'un NavigationObstacle3D pour pousser le paysan autour du tronc).
+	var obs := NavigationObstacle3D.new()
+	obs.name = "NavObstacle"
+	obs.radius = full * 0.5    # rayon dynamique = il pousse le paysan à l'écart
+	obs.affect_navigation_mesh = false  # la cuisson du navmesh fait déjà le trou
+	add_child(obs)
 
 ## Récolte [count] unités. Renvoie la quantité réellement prélevée (0 si vide).
 func harvest(count: int) -> int:
@@ -190,6 +220,7 @@ func display_name() -> String:
 		ResourceType.GOLD: return "Or"
 		ResourceType.WOOD: return "Bois"
 		ResourceType.STONE: return "Pierre"
+		ResourceType.FOOD: return "Nourriture"
 	return "?"
 
 ## Met à jour le visuel : choisit la variante de modèle selon la quantité restante.
@@ -219,6 +250,8 @@ func _stages() -> Array:
 			return TREE_FAMILIES[_tree_family_index]
 		ResourceType.STONE, ResourceType.GOLD:
 			return ROCK_STAGES
+		ResourceType.FOOD:
+			return FOOD_STAGES
 	return []
 
 ## Assigne un indice de stage (0..n-1) depuis un ratio (1.0 → 0, 0.0 → n-1).
@@ -244,6 +277,8 @@ func _swap_model(stage: PackedScene) -> void:
 			_make_gold(inst)
 		ResourceType.WOOD, ResourceType.STONE:
 			_apply_forest_texture(inst)
+		ResourceType.FOOD:
+			_make_food(inst)
 
 ## Texture forêt partagée (chargée une seule fois).
 var _forest_tex: Texture2D = null
@@ -266,6 +301,15 @@ func _make_gold(node: Node) -> void:
 	mat.albedo_color = Color(0.95, 0.8, 0.25)
 	mat.metallic = 0.7
 	mat.roughness = 0.3
+	for mi in _collect_meshes(node):
+		(mi as MeshInstance3D).material_override = mat
+
+## Teinte rouge/baie pour les arbres fruitiers (nourriture), pour les distinguer visuellement des arbres à bois.
+func _make_food(node: Node) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.75, 0.5, 0.35)
+	mat.roughness = 0.7
+	mat.metallic = 0.0
 	for mi in _collect_meshes(node):
 		(mi as MeshInstance3D).material_override = mat
 
