@@ -22,7 +22,11 @@ enum State { IDLE, GOING_TO_RESOURCE, GATHERING, RETURNING, GOING_TO_ATTACK, ATT
 
 const MOVE_SPEED: float = 3.0
 const GATHER_TIME: float = 2.0
-const REACH_DISTANCE: float = 1.2
+# Distance de portée : assez grande pour que le paysan atteigne une ressource
+# malgré sa collision (arbre : boîte 1.8 → bord à 0.9 + rayon 0.35 = ~1.25).
+# Anciennement 1.2, trop juste pour les arbres : le paysan restait bloqué au
+# bord sans jamais déclencher la récolte.
+const REACH_DISTANCE: float = 2.0
 # Rayon de livraison à l'hôtel de ville : doit être assez grand pour être atteint
 # malgré la collision de la bâtisse (les paysans s'arrêtent à son bord, pas au centre).
 const DELIVER_DISTANCE: float = 2.5
@@ -127,7 +131,12 @@ func _begin_gather(resource_node: ResourceNode) -> void:
 	_assigned_resource = resource_node
 	_carried_type = resource_node.resource_type
 	_gather_timer = 0.0
-	nav_agent.target_position = resource_node.global_position
+	# Légère décalage aléatoire autour de la source : plusieurs paysans affectés à
+	# la même ressource se répartissent autour d'elle au lieu de s'empiler au centre.
+	var approach := resource_node.global_position
+	approach.x += randf_range(-0.9, 0.9)
+	approach.z += randf_range(-0.9, 0.9)
+	nav_agent.target_position = approach
 	set_state(State.GOING_TO_RESOURCE)
 
 func _move_to_target(delta: float) -> void:
@@ -283,10 +292,20 @@ func _move_to_point_state(delta: float) -> void:
 	_step(delta)
 
 func _step(_delta: float) -> void:
-	# Déplacement direct vers la destination finale (target_position).
+	# Suit le chemin calculé par le NavigationAgent3D (A* sur le navmesh) : le
+	# paysan contourne les obstacles (bâtiments, ressources) au lieu de marcher
+	# en ligne droite. Petit ralentissement en approche de la destination.
 	var target := nav_agent.target_position
-	var dir := target - global_position
-	dir.y = 0.0
+	var dir := Vector3.ZERO
+	var map_ready: bool = NavigationServer3D.map_get_iteration_id(nav_agent.get_navigation_map()) > 0
+	if map_ready and not nav_agent.is_navigation_finished():
+		var next := nav_agent.get_next_path_position()
+		dir = next - global_position
+		dir.y = 0.0
+	else:
+		# Repli : navmesh absent/indisponible → marche en ligne droite vers la cible.
+		dir = target - global_position
+		dir.y = 0.0
 	var dist := dir.length()
 	if dist > 0.001:
 		dir = dir.normalized()

@@ -22,6 +22,10 @@ const DRAG_SELECT_THRESHOLD := 8.0
 
 @onready var nav_region: NavigationRegion3D = $NavigationRegion3D
 @onready var villager_root: Node3D = $Units
+
+## Timer anti-rebond pour re-cuire le navmesh après un placement/déplacement de
+## bâtiment ou une réapparition de ressource (évite de cuire à chaque frame).
+var _rebake_timer: Timer = null
 @onready var building_root: Node3D = $Buildings
 @onready var resource_root: Node3D = $Resources
 @onready var decor_root: Node3D = $Decor
@@ -170,6 +174,33 @@ func _await_frame_then_bake() -> void:
 func _bake_navmesh() -> void:
 	var region := nav_region
 	var mesh := NavigationMesh.new()
+	# Cellule et hauteur alignées sur la carte de navigation par défaut (0.25) et
+	# propriétés d'agent en multiples exacts de la cellule -> pas d'avertissements
+	# de précision ni d'écart de cell_height.
+	mesh.cell_size = 0.25
+	mesh.cell_height = 0.25
+	mesh.agent_radius = 0.5
+	mesh.agent_height = 1.5
+	mesh.agent_max_climb = 0.25
+	# Carve les obstacles dans le navmesh : le sol (couche 2) fournit la surface
+	# marchable, les ressources et bâtiments (couche 1) sont découpés -> les
+	# paysans les contournent via le chemin A* du NavigationAgent3D.
+	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	mesh.geometry_collision_mask = 0b11   # couches 1 et 2
+	mesh.filter_baking_aabb = AABB(
+		Vector3(-GRID_HALF, -1.0, -GRID_HALF),
+		Vector3(GRID_HALF * 2.0, 4.0, GRID_HALF * 2.0)
+	)
+	region.navigation_mesh = mesh
+	region.bake_navigation_mesh()
+	# Filet de sécurité : si la cuisson échoue (0 polygones), on pose une grille
+	# plate pour que les paysans puissent tout de même se déplacer (sans contourner).
+	if region.get_navigation_mesh().get_polygon_count() == 0:
+		_fallback_flat_navmesh(region)
+
+## Navmesh de secours : grande grille plate (les paysans marchent en ligne droite).
+func _fallback_flat_navmesh(region: NavigationRegion3D) -> void:
+	var mesh := NavigationMesh.new()
 	mesh.agent_radius = 0.4
 	mesh.agent_height = 1.6
 	var half := 200.0
@@ -189,6 +220,17 @@ func _bake_navmesh() -> void:
 			mesh.add_polygon(PackedInt32Array([a, b, c]))
 			mesh.add_polygon(PackedInt32Array([b, d, c]))
 	region.navigation_mesh = mesh
+
+## Planifie (avec rebond) une re-cuisson du navmesh. À appeler quand le monde
+## change d'obstacles (bâtiment posé/déplacé, ressource réapparue).
+func _schedule_rebake() -> void:
+	if _rebake_timer == null:
+		_rebake_timer = Timer.new()
+		_rebake_timer.one_shot = true
+		_rebake_timer.wait_time = 0.6
+		_rebake_timer.timeout.connect(_bake_navmesh)
+		add_child(_rebake_timer)
+	_rebake_timer.start()
 
 # ============================================================ SPAWN MONDE
 
@@ -239,6 +281,13 @@ func _spawn_cluster(center: Vector3, count: int) -> void:
 ## pour densifier les arbres à bois), sinon il est tiré au sort.
 ## Connecte le signal `depleted` pour faire réapparaître la ressource ailleurs.
 func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
+	# Garde de la ressource à distance des bâtiments : on réessaie jusqu'à trouver
+	# un emplacement libre, pour ne pas faire pousser d'arbres à côté des maisons.
+	for attempt in 8:
+		if not _near_building(pos, 6.0):
+			break
+		pos.x = clampf(pos.x + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
+		pos.z = clampf(pos.z + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
 	var types := [ResourceNode.ResourceType.GOLD, ResourceNode.ResourceType.WOOD, ResourceNode.ResourceType.STONE]
 	var t: ResourceNode.ResourceType
 	if forced_type >= 0:
@@ -269,6 +318,7 @@ func _on_resource_depleted(node: Node3D) -> void:
 	var pos := _random_free_world_pos()
 	_spawn_resource_node(pos, t)
 	node.queue_free()
+	_schedule_rebake()  # nouvelles obstructions (arbres) à intégrer au navmesh
 
 ## Disperser la décoration : des touffes d'herbe (modèles fournis) un peu partout
 ## + de grands arbres décoratifs (non récoltables) pour le paysage. Concentration
@@ -351,9 +401,21 @@ func _random_free_world_pos() -> Vector3:
 	for attempt in 20:
 		var pos := Vector3(randf_range(-GRID_HALF, GRID_HALF), 0.0, randf_range(-GRID_HALF, GRID_HALF))
 		var cell := _cell_from_pos(pos)
-		if not _occupancy.has(cell):
+		if not _occupancy.has(cell) and not _near_building(pos, 6.0):
 			return pos
 	return Vector3(randf_range(-GRID_HALF, GRID_HALF), 0.0, randf_range(-GRID_HALF, GRID_HALF))
+
+## Vrai si la position est trop proche d'un bâtiment : sert à ne pas faire
+## pousser d'arbres/ressources juste à côté des constructions (jamais bloquantes
+## et visuellement propres).
+func _near_building(pos: Vector3, min_dist: float) -> bool:
+	for child in building_root.get_children():
+		var b := child as Building
+		if b == null:
+			continue
+		if pos.distance_to(b.global_position) < min_dist:
+			return true
+	return false
 
 func _spawn_initial_buildings() -> void:
 	# Hôtel de ville au centre de la base (décalé de la position de base).
@@ -436,6 +498,7 @@ func _place_building(b: Building, anchor: Vector2i) -> void:
 	b.building_changed.connect(_refresh_building_panel)
 	_refresh_population_cap()
 	_refresh_building_panel()
+	_schedule_rebake()  # le nouveau bâtiment découpe le navmesh (contournement)
 
 func _remove_building_from_grid(b: Building) -> void:
 	var f := b.footprint()
