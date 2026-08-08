@@ -255,11 +255,12 @@ func _build_visual() -> void:
 	_mesh.material_override = _base_material
 	add_child(_mesh)
 	_mesh.position.y = HEIGHT / 2.0
+	
+	# COLLISION PAR MESH : On utilise directement la géométrie du mesh pour la collision.
+	# Même pour une boîte, cela garantit une synchronisation parfaite entre visuel et physique.
 	var shape := CollisionShape3D.new()
 	shape.name = "CollisionShape3D"
-	var bs := BoxShape3D.new()
-	bs.size = size
-	shape.shape = bs
+	shape.shape = _mesh.mesh.create_convex_shape()
 	shape.position.y = HEIGHT / 2.0
 	add_child(shape)
 

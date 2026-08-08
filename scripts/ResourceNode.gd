@@ -168,35 +168,19 @@ func _build_model_root() -> void:
 			model_scale = 0.7
 	_model_root.scale = Vector3.ONE * model_scale
 
-## Configure la collision de façon adaptée à la taille du modèle.
+## Configure l'obstacle de navigation (évitement temps réel).
+## La collision physique est désormais générée dynamiquement à partir du mesh du modèle.
 func _setup_collision() -> void:
-	var cs := get_node_or_null("CollisionShape3D") as CollisionShape3D
-	if cs == null:
-		return
-	var full := 1.6  # largeur de l'empreinte (x/z) selon le type
+	var full := 1.6
 	match resource_type:
-		ResourceType.WOOD:
-			full = 1.8
-			cs.shape = BoxShape3D.new()
-			(cs.shape as BoxShape3D).size = Vector3(1.8, 3.0, 1.8)
-			cs.position = Vector3(0, 1.5, 0)
-		ResourceType.STONE, ResourceType.GOLD:
-			full = 1.6
-			cs.shape = BoxShape3D.new()
-			(cs.shape as BoxShape3D).size = Vector3(1.6, 1.6, 1.6)
-			cs.position = Vector3(0, 0.8, 0)
-		ResourceType.FOOD:
-			full = 1.8
-			cs.shape = BoxShape3D.new()
-			(cs.shape as BoxShape3D).size = Vector3(1.8, 2.5, 1.8)
-			cs.position = Vector3(0, 1.25, 0)
-	# Obstacle d'évitement : dit au NavigationAgent3D qu'il doit CONTOURNER cette
-	# ressource (l'évitement temps réel ne voit pas les colliders physiques, il a
-	# besoin d'un NavigationObstacle3D pour pousser le paysan autour du tronc).
+		ResourceType.WOOD: full = 1.8
+		ResourceType.STONE, ResourceType.GOLD: full = 1.6
+		ResourceType.FOOD: full = 1.8
+	
 	var obs := NavigationObstacle3D.new()
 	obs.name = "NavObstacle"
-	obs.radius = full * 0.5    # rayon dynamique = il pousse le paysan à l'écart
-	obs.affect_navigation_mesh = false  # la cuisson du navmesh fait déjà le trou
+	obs.radius = full * 0.5
+	obs.affect_navigation_mesh = false
 	add_child(obs)
 
 ## Récolte [count] unités. Renvoie la quantité réellement prélevée (0 si vide).
@@ -269,13 +253,31 @@ func _stage_for_ratio(ratio: float, n: int) -> int:
 func _swap_model(stage: PackedScene) -> void:
 	if _model_root == null:
 		return
+	# Nettoie l'ancien modèle ET les anciennes formes de collision générées.
 	for child in _model_root.get_children():
 		child.queue_free()
+	for child in get_children():
+		if child is CollisionShape3D:
+			child.queue_free()
+
 	var inst: Node = stage.instantiate()
 	_model_root.add_child(inst)
-	# Applique la texture forêt aux modèles (bois/pierre) : les .gltf référencent
-	# forest_texture.png par un chemin relatif qui ne se résout pas, on l'applique
-	# donc explicitement. L'or reçoit un matériau doré à la place.
+	
+	# GÉNÉRATION DE COLLISION PAR MESH :
+	# On parcourt les meshes du modèle et on génère une forme de collision convexe
+	# pour chacun. C'est beaucoup plus précis qu'une simple boîte.
+	for mi in _collect_meshes(inst):
+		var mesh_instance := mi as MeshInstance3D
+		if mesh_instance.mesh != null:
+			var shape := mesh_instance.mesh.create_convex_shape()
+			var cs := CollisionShape3D.new()
+			cs.shape = shape
+			# On applique l'échelle et la position relative du mesh.
+			cs.scale = mesh_instance.scale * model_scale
+			cs.position = mesh_instance.position * model_scale
+			add_child(cs)
+
+	# Applique la texture forêt aux modèles...
 	match resource_type:
 		ResourceType.GOLD:
 			_make_gold(inst)
