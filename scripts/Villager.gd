@@ -115,6 +115,7 @@ func attack_node(target: Node3D) -> void:
 		return
 	_assigned_attack = target
 	nav_agent.target_position = target.global_position
+	nav_agent.avoidance_enabled = true  # contourne les obstacles pour atteindre la cible
 	set_state(State.GOING_TO_ATTACK)
 
 func set_selected(on: bool) -> void:
@@ -136,6 +137,7 @@ func move_to_point(point: Vector3) -> void:
 	_assigned_resource = null
 	_assigned_attack = null
 	nav_agent.target_position = point
+	nav_agent.avoidance_enabled = true  # évite les obstacles sur la route
 	_arm_watch()
 	set_state(State.MOVING)
 
@@ -161,6 +163,7 @@ func _begin_gather(resource_node: ResourceNode) -> void:
 	if NavigationServer3D.map_is_active(nav_map) and NavigationServer3D.map_get_iteration_id(nav_map) > 0:
 		approach = NavigationServer3D.map_get_closest_point(nav_map, approach)
 	nav_agent.target_position = approach
+	nav_agent.avoidance_enabled = true  # re-coupe les obstacles pendant le déplacement
 	_arm_watch()
 	set_state(State.GOING_TO_RESOURCE)
 
@@ -174,7 +177,16 @@ func _move_to_target(delta: float) -> void:
 	# Arrivée basée sur la distance HORIZONTALE (plan XZ) : le terrain en gradins
 	# donne une différence de hauteur Y qui gonflerait la distance 3D et empêcherait
 	# d'atteindre REACH_DISTANCE même juste à côté de la ressource.
-	if _hdist(nav_agent.target_position) <= REACH_DISTANCE:
+	# On juge l'arrivée par rapport à la POSITION DE LA RESSOURCE (pas le point
+	# d'approche décalé) : l'évitement temps réel repousse le paysan du tronc, si
+	# on testait le point ±0.9 il n'atteindrait jamais REACH_DISTANCE et continuerait
+	# à tourner autour de l'arbre au lieu de s'arrêter pour récolter.
+	var reached: bool = false
+	if _assigned_resource != null:
+		reached = _hdist(_assigned_resource.global_position) <= REACH_DISTANCE
+	else:
+		reached = _hdist(nav_agent.target_position) <= REACH_DISTANCE
+	if reached:
 		if _assigned_resource != null and _assigned_resource.has_left():
 			_gather_timer = 0.0
 			set_state(State.GATHERING)
@@ -184,6 +196,12 @@ func _move_to_target(delta: float) -> void:
 	_step(delta)
 
 func _gather(delta: float) -> void:
+	# RÉCOLTE = À L'ARRÊT : on coupe l'évitement et toute vitesse résiduelle pour
+	# que le paysan ne bouge pas d'un pixel pendant qu'il récolte (contrairement au
+	# déplacement où on dévie des obstacles). Re-activé au passage dans un état de
+	# déplacement (voir _begin_gather / _move_to_attack).
+	nav_agent.avoidance_enabled = false
+	velocity = Vector3.ZERO
 	_gather_timer += delta
 	if _gather_timer >= GATHER_TIME:
 		if _assigned_resource != null and _assigned_resource.has_left():
@@ -194,6 +212,7 @@ func _gather(delta: float) -> void:
 				_show_harvest_float(taken)
 		if _town_hall != null:
 			nav_agent.target_position = _town_hall.global_position
+			nav_agent.avoidance_enabled = true  # évite de nouveau sur le chemin du retour
 			set_state(State.RETURNING)
 		else:
 			_select_next_task()
