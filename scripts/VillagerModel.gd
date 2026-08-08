@@ -32,10 +32,11 @@ func _build() -> void:
 		return
 	_model = base.instantiate()
 	_model.name = "Model"
-	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.1m pour qu'il ne soit pas
-	# enfoncé dans le sol (le point de contact sol est légèrement au-dessus du pivot).
-	# Si les pieds sont encore trop bas, on augmentera cette valeur.
-	_model.position.y = 0.05
+	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.85m. 
+	# La plupart des modèles 3D ont leur pivot au centre. En le remontant de la 
+	# moitié de sa hauteur (environ 0.85m pour une capsule de 1.6m), on place 
+	# ses pieds exactement au niveau 0 du sol.
+	_model.position.y = 0.85
 	add_child(_model)
 	_apply_tint()
 	_anim_player = _model.get_node_or_null("AnimationPlayer") as AnimationPlayer

@@ -174,19 +174,18 @@ func _await_frame_then_bake() -> void:
 func _bake_navmesh() -> void:
 	var region := nav_region
 	var mesh := NavigationMesh.new()
-	# Cellule et hauteur alignées sur la carte de navigation par défaut (0.25) et
-	# propriétés d'agent en multiples exacts de la cellule -> pas d'avertissements
-	# de précision ni d'écart de cell_height.
-	mesh.cell_size = 0.25
-	mesh.cell_height = 0.25
-	# CELL SIZE : On la réduit drastiquement pour que le navmesh soit très précis.
-	# Cela permet à l'agent_radius de 0.35 d'être parfaitement pris en compte.
+	
+	# SYNCHRONISATION : On règle la taille de cellule de la carte globale.
+	var map := get_world_3d().navigation_map
+	NavigationServer3D.map_set_cell_size(map, 0.1)
+	NavigationServer3D.map_set_cell_height(map, 0.1)
+	
 	mesh.cell_size = 0.1
 	mesh.cell_height = 0.1
 	mesh.agent_radius = 0.35
-	# Carve les obstacles dans le navmesh : le sol (couche 2) fournit la surface
-	# marchable, les ressources et bâtiments (couche 1) sont découpés -> les
-	# paysans les contournent via le chemin A* du NavigationAgent3D.
+	mesh.agent_height = 1.5
+	mesh.agent_max_climb = 0.5
+	
 	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
 	mesh.geometry_collision_mask = 0b11   # couches 1 et 2
 	mesh.filter_baking_aabb = AABB(

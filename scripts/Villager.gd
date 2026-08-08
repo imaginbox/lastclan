@@ -480,6 +480,7 @@ func _step(_delta: float) -> void:
 func _apply_movement(vel: Vector3) -> void:
 	velocity = vel
 	move_and_slide()
+	
 	var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
 	global_position.x = clampf(global_position.x, base.x - VILLAGE_HALF - 2.0, base.x + VILLAGE_HALF + 2.0)
 	global_position.z = clampf(global_position.z, base.z - VILLAGE_HALF - 2.0, base.z + VILLAGE_HALF + 2.0)
