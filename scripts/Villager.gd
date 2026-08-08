@@ -209,12 +209,24 @@ func _gather(delta: float) -> void:
 	velocity = Vector3.ZERO
 	_gather_timer += delta
 	if _gather_timer >= GATHER_TIME:
+		_gather_timer = 0.0
 		if _assigned_resource != null and _assigned_resource.has_left():
-			var taken: int = _assigned_resource.harvest(1)
+			# RENDEMENT ALÉATOIRE : récolte entre 1 et 5 unités à chaque coup.
+			var amount := randi_range(1, 5)
+			var taken: int = _assigned_resource.harvest(amount)
 			if taken > 0:
 				_add_harvest_to_city(taken)
 				_carried_type = _assigned_resource.resource_type
 				_show_harvest_float(taken)
+		
+		# Si la ressource est épuisée suite à ce coup, on cherche immédiatement une
+		# remplaçante DU MÊME TYPE avant de décider de rentrer ou non.
+		if _assigned_resource == null or not _assigned_resource.has_left():
+			var replacement := _find_nearest_of_type(_carried_type)
+			if replacement != null:
+				_begin_gather(replacement)
+				return
+
 		if _town_hall != null:
 			nav_agent.target_position = _town_hall.global_position
 			nav_agent.avoidance_enabled = true  # évite de nouveau sur le chemin du retour
@@ -241,21 +253,39 @@ func _return_to_townhall(delta: float) -> void:
 		return
 	_step(delta)
 
-## Après le dépôt, repart sur la même ressource si elle a encore des ressources,
-## sinon sur la ressource disponible la plus proche -> allers-retours automatiques.
+## Choisit l'activité suivante (souvent après une livraison ou un épuisement).
 func _select_next_task() -> void:
+	# REPLI INTELLIGENT : si la ressource en cours est épuisée, on cherche d'abord
+	# la source la plus proche du MÊME type.
 	var next: ResourceNode = null
 	if _assigned_resource != null and _assigned_resource.has_left():
 		next = _assigned_resource
 	else:
+		next = _find_nearest_of_type(_carried_type)
+	
+	# Si ce type est totalement épuisé sur la carte, on se rabat sur le type
+	# le plus nécessaire (loi d'émergence globale).
+	if next == null:
 		next = _nearest_resource()
+		
 	if next != null:
 		_begin_gather(next)
 	else:
-		# Plus de ressources exploitables : le paysan s'arrête en place,
-		# il ne repartira que sur un ordre (récolte/attaque).
 		_assigned_resource = null
 		set_state(State.IDLE)
+
+## Cherche la ressource la plus proche d'un type spécifique.
+func _find_nearest_of_type(t: ResourceNode.ResourceType) -> ResourceNode:
+	var best: ResourceNode = null
+	var best_d := INF
+	for node in get_tree().get_nodes_in_group("resource"):
+		var r := node as ResourceNode
+		if r != null and r.resource_type == t and r.has_left():
+			var d := global_position.distance_squared_to(r.global_position)
+			if d < best_d:
+				best_d = d
+				best = r
+	return best
 
 ## Affiche le nombre de récolte cartoonesque au-dessus de la source.
 func _show_harvest_float(taken: int) -> void:
