@@ -5,7 +5,6 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-# Autorise GitHub Actions à déployer sur Pages.
 permissions:
   contents: read
   pages: write
@@ -31,8 +30,14 @@ jobs:
           version: 4.7.1
           use-dotnet: false
 
+      # Importe les ressources (crée le cache .godot indispensable à l'export).
+      - name: Import Godot resources
+        run: |
+          godot --headless --path "$GITHUB_WORKSPACE" --import --quit
+
       - name: Export Web
         run: |
+          mkdir -p "$GITHUB_WORKSPACE/build/web"
           godot --headless --path "$GITHUB_WORKSPACE" --export-release "Web" "$GITHUB_WORKSPACE/build/web/index.html"
 
       - name: Upload artifact
