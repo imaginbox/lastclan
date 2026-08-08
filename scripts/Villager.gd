@@ -76,18 +76,22 @@ func _ready() -> void:
 	# nav_agent.velocity_computed.connect(_on_velocity_computed) # Retiré pour le ghosting
 	_town_hall = get_tree().get_first_node_in_group("town_hall") as Node3D
 	# COUCHES DE COLLISION :
-	# COLLISION GHOST : Le paysan est guidé à 100% par le NavMesh.
-	# Il n'a plus besoin de masque de collision car le NavMesh contient déjà
-	# les trous pour les arbres et les bâtiments. Cela supprime tout risque
-	# de rester "collé" physiquement à un objet.
+	# COLLISION PHYSIQUE : Le paysan doit détecter le sol (couche 1) pour s'y poser.
+	# Il ignore les autres paysans (couche 2) pour éviter les blocages.
 	collision_layer = 2
-	collision_mask = 0
+	collision_mask = 1
 	# Sans ordre, il attend en place. La tâche par défaut (récolte) lui est
 	# assignée depuis main.gd (ressource la plus proche) -> allers-retours infinis.
 	set_state(State.IDLE)
 
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
+	
+	# GRAVITÉ : On applique la gravité par défaut pour que le paysan tombe sur le sol.
+	if not is_on_floor():
+		velocity.y -= 9.8 * delta
+	else:
+		velocity.y = 0.0 # Stoppe la chute une fois au sol
 	
 	# GESTION DES ANIMATIONS SELON LE MOUVEMENT RÉEL
 	# Si on est censé courir mais qu'on ne bouge pas (bloqué contre un mur/arbre),
@@ -478,7 +482,11 @@ func _step(_delta: float) -> void:
 	_apply_movement(desired)
 
 func _apply_movement(vel: Vector3) -> void:
+	# On conserve la vitesse verticale (gravité) calculée dans _physics_process
+	var vertical_vel := velocity.y
 	velocity = vel
+	velocity.y = vertical_vel
+	
 	move_and_slide()
 	
 	var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO

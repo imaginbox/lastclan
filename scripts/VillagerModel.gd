@@ -32,11 +32,10 @@ func _build() -> void:
 		return
 	_model = base.instantiate()
 	_model.name = "Model"
-	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.85m. 
-	# La plupart des modèles 3D ont leur pivot au centre. En le remontant de la 
-	# moitié de sa hauteur (environ 0.85m pour une capsule de 1.6m), on place 
-	# ses pieds exactement au niveau 0 du sol.
-	_model.position.y = 0.85
+	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.8m.
+	# Avec la gravité activée dans Villager.gd, 0.8m place les pieds
+	# exactement au contact du sol.
+	_model.position.y = 0.8
 	add_child(_model)
 	_apply_tint()
 	_anim_player = _model.get_node_or_null("AnimationPlayer") as AnimationPlayer
