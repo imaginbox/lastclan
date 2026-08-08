@@ -26,10 +26,11 @@ const GATHER_TIME: float = 2.0
 # malgré sa collision (arbre : boîte 1.8 → bord à 0.9 + rayon 0.35 = ~1.25).
 # Anciennement 1.2, trop juste pour les arbres : le paysan restait bloqué au
 # bord sans jamais déclencher la récolte.
-const REACH_DISTANCE: float = 2.8
-# Rayon de livraison à l'hôtel de ville : doit être assez grand pour être atteint
-# malgré la collision de la bâtisse (les paysans s'arrêtent à son bord, pas au centre).
-const DELIVER_DISTANCE: float = 3.0
+# Distance de portée : très souple (4.0) pour garantir que le paysan commence à
+# récolter dès qu'il est à proximité, sans buter contre la collision de l'arbre.
+const REACH_DISTANCE: float = 4.0
+# Rayon de livraison à l'hôtel de ville : également souple pour éviter les blocages.
+const DELIVER_DISTANCE: float = 4.5
 const VILLAGE_HALF: float = 60.0      # le paysan peut explorer une large zone autour de sa base
 const ATTACK_RANGE: float = 1.5
 const ATTACK_DAMAGE: int = 5
@@ -183,14 +184,20 @@ func _move_to_target(delta: float) -> void:
 	# donne une différence de hauteur Y qui gonflerait la distance 3D et empêcherait
 	# d'atteindre REACH_DISTANCE même juste à côté de la ressource.
 	# On juge l'arrivée par rapport à la POSITION DE LA RESSOURCE (pas le point
-	# d'approche décalé) : l'évitement temps réel repousse le paysan du tronc, si
-	# on testait le point ±0.9 il n'atteindrait jamais REACH_DISTANCE et continuerait
-	# à tourner autour de l'arbre au lieu de s'arrêter pour récolter.
+	# d'approche décalé). On est très permissif (REACH_DISTANCE=4.0) et on ajoute
+	# une détection par collision : si le paysan touche l'arbre, il récolte.
 	var reached: bool = false
 	if _assigned_resource != null:
 		reached = _hdist(_assigned_resource.global_position) <= REACH_DISTANCE
+		# Détection par contact : si on bute contre la ressource, c'est qu'on est arrivé.
+		if not reached and get_slide_collision_count() > 0:
+			for i in get_slide_collision_count():
+				if get_slide_collision(i).get_collider() == _assigned_resource:
+					reached = true
+					break
 	else:
 		reached = _hdist(nav_agent.target_position) <= REACH_DISTANCE
+	
 	if reached:
 		if _assigned_resource != null and _assigned_resource.has_left():
 			_gather_timer = 0.0
@@ -244,13 +251,19 @@ func _return_to_townhall(delta: float) -> void:
 		resource_delivered.emit(_carried_type, 1)
 		_select_next_task()
 		return
-	# Dépôt effectué dès que le paysan est assez près de l'hôtel de ville
-	# (au bord de la bâtisse, pas à son centre). Distance HORIZONTALE : la hauteur
-	# Y de la bâtisse ne doit pas empêcher la livraison.
-	if _hdist(_town_hall.global_position) <= DELIVER_DISTANCE:
+	# Dépôt effectué dès que le paysan est assez près de l'hôtel de ville.
+	# Distance très souple (4.5) pour éviter que les paysans ne courent contre les murs.
+	if _town_hall != null and _hdist(_town_hall.global_position) <= DELIVER_DISTANCE:
 		resource_delivered.emit(_carried_type, 1)
 		_select_next_task()
 		return
+	# Détection par contact avec l'hôtel de ville.
+	if get_slide_collision_count() > 0:
+		for i in get_slide_collision_count():
+			if get_slide_collision(i).get_collider() == _town_hall:
+				resource_delivered.emit(_carried_type, 1)
+				_select_next_task()
+				return
 	_step(delta)
 
 ## Choisit l'activité suivante (souvent après une livraison ou un épuisement).
