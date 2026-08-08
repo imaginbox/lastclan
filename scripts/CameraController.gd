@@ -81,10 +81,30 @@ func _pan(screen_delta: Vector2) -> void:
 	var vp_h := float(get_viewport().get_visible_rect().size.y)
 	if vp_h <= 0.0:
 		return
+	
+	# Ratio pixels -> mètres monde.
 	var world_per_pixel := _size / vp_h
+	
+	# Les axes de mouvement à l'écran :
+	# Right est toujours horizontal (parfait).
+	# Up est incliné vers le haut (pitch), on veut sa projection sur le sol.
 	var right: Vector3 = global_transform.basis.x
-	var up: Vector3 = global_transform.basis.y
-	_pivot = _clamp_pivot(_pivot + right * (-screen_delta.x * world_per_pixel) + up * (screen_delta.y * world_per_pixel))
+	var forward: Vector3 = global_transform.basis.z # Dans Godot, Z est le forward
+	
+	# On projette le forward sur le plan XZ et on le normalise.
+	var forward_ground := Vector3(forward.x, 0.0, forward.z).normalized()
+	
+	# Le mouvement horizontal (souris X -> Right du monde)
+	var move_x := right * (-screen_delta.x * world_per_pixel)
+	
+	# Le mouvement vertical (souris Y -> Forward/Backward du monde)
+	# On compense l'inclinaison (pitch) : plus la caméra est à plat, plus il faut
+	# bouger loin sur le sol pour un pixel écran.
+	var pitch_rad := deg_to_rad(pitch_deg)
+	var compensate := 1.0 / sin(pitch_rad)
+	var move_y := forward_ground * (screen_delta.y * world_per_pixel * compensate)
+	
+	_pivot = _clamp_pivot(_pivot + move_x + move_y)
 
 func _mouse_pos() -> Vector2:
 	return get_viewport().get_mouse_position()
