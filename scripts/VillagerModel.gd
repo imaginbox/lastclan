@@ -32,6 +32,10 @@ func _build() -> void:
 		return
 	_model = base.instantiate()
 	_model.name = "Model"
+	# RÉGLAGE DE LA HAUTEUR : On remonte le modèle de 0.1m pour qu'il ne soit pas
+	# enfoncé dans le sol (le point de contact sol est légèrement au-dessus du pivot).
+	# Si les pieds sont encore trop bas, on augmentera cette valeur.
+	_model.position.y = 0.05
 	add_child(_model)
 	_apply_tint()
 	_anim_player = _model.get_node_or_null("AnimationPlayer") as AnimationPlayer

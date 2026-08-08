@@ -244,24 +244,33 @@ func _destroy() -> void:
 ## --- Visuel ---
 func _build_visual() -> void:
 	var f := footprint()
-	var size := Vector3(f, HEIGHT, f)
+	var h := HEIGHT
+	# La ferme et la carrière sont plus plates (champs / fondations).
+	if type == Type.FERME or type == Type.CARRIERE:
+		h = 0.3
+	
+	var size := Vector3(f, h, f)
 	_mesh = MeshInstance3D.new()
 	_mesh.name = "Mesh"
 	var box := BoxMesh.new()
 	box.size = size
 	_mesh.mesh = box
 	_base_material = StandardMaterial3D.new()
-	_base_material.albedo_color = _cfg().get("color", Color.WHITE)
+	
+	# Couleur spécifique pour la ferme (jaune blé) si pas définie.
+	var color: Color = _cfg().get("color", Color.WHITE)
+	if type == Type.FERME:
+		color = Color(0.9, 0.8, 0.2) # Jaune blé
+		
+	_base_material.albedo_color = color
 	_mesh.material_override = _base_material
 	add_child(_mesh)
-	_mesh.position.y = HEIGHT / 2.0
+	_mesh.position.y = h / 2.0
 	
-	# COLLISION PAR MESH : On utilise directement la géométrie du mesh pour la collision.
-	# Même pour une boîte, cela garantit une synchronisation parfaite entre visuel et physique.
 	var shape := CollisionShape3D.new()
 	shape.name = "CollisionShape3D"
 	shape.shape = _mesh.mesh.create_convex_shape()
-	shape.position.y = HEIGHT / 2.0
+	shape.position.y = h / 2.0
 	add_child(shape)
 
 func _update_visual() -> void:
