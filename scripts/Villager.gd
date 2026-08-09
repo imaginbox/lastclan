@@ -53,6 +53,9 @@ var _town_hall: Node3D = null
 var _stuck_t: float = 0.0
 var _last_dist: float = INF
 var _watch_armed: bool = false
+# --- Suivi d'animation (lissage Course/Idle basé sur le déplacement réel) ---
+var _anim_prev_pos: Vector3 = Vector3.ZERO
+var _anim_moving_buf: float = 0.0
 
 func _ready() -> void:
 	# AnimationPlayer : le modèle (VillagerModel) construit son AnimationPlayer
@@ -76,12 +79,15 @@ func _ready() -> void:
 	# nav_agent.velocity_computed.connect(_on_velocity_computed) # Retiré pour le ghosting
 	_town_hall = get_tree().get_first_node_in_group("town_hall") as Node3D
 	# COUCHES DE COLLISION :
-	# COLLISION PHYSIQUE : Le paysan doit détecter le sol (couche 1) pour s'y poser.
-	# Il ignore les autres paysans (couche 2) pour éviter les blocages.
+	# Le paysan ne détecte QUE le sol (couche 4, valeur 8) pour rester ancré par
+	# gravité, mais GLISSE à travers les arbres/bâtiments/autres paysans (couches
+	# 1 et 2). Le contournement des obstacles est entièrement géré par le NavMesh,
+	# ce qui élimine tout blocage physique en chemin.
 	collision_layer = 2
-	collision_mask = 1
+	collision_mask = 8
 	# Sans ordre, il attend en place. La tâche par défaut (récolte) lui est
 	# assignée depuis main.gd (ressource la plus proche) -> allers-retours infinis.
+	_anim_prev_pos = global_position
 	set_state(State.IDLE)
 
 func _physics_process(delta: float) -> void:
@@ -93,10 +99,14 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y = -2.0 # Pression constante vers le bas
 	
-	# GESTION DES ANIMATIONS SELON LE MOUVEMENT RÉEL
-	# Si on est censé courir mais qu'on ne bouge pas (bloqué contre un mur/arbre),
-	# on joue l'animation Idle pour éviter de "courir dans le vide".
-	var moving := velocity.length() > 0.2
+	# GESTION DES ANIMATIONS SELON LE MOUVEMENT RÉEL.
+	# On mesure le déplacement RÉEL entre frames (position précédente) plutôt que la
+	# vitesse instantanée, qui clignote à l'arrêt. Un court lissage évite les
+	# transitions brusques Course -> Idle -> Course (sautillements visuels).
+	var actual_move := global_position - _anim_prev_pos
+	_anim_prev_pos = global_position
+	_anim_moving_buf = lerpf(_anim_moving_buf, 1.0 if actual_move.length() > 0.02 else 0.0, 0.25)
+	var moving := _anim_moving_buf > 0.3
 	
 	match _state:
 		State.IDLE:
@@ -445,14 +455,19 @@ func _stuck_check(delta: float) -> bool:
 		_stuck_t = 0.0
 	else:
 		_stuck_t += delta
-	# Bloqué trop longtemps : on essaie de se dégager radicalement.
+	# Bloqué trop longtemps : on essaie de se dégager.
 	if _stuck_t >= STUCK_TIMEOUT:
 		_arm_watch()
-		# On se déplace vers le prochain point de passage immédiatement pour "sauter" le blocage.
+		# On force un nouveau calcul de chemin pour contourner le blocage.
+		nav_agent.target_position = nav_agent.get_final_position()
+		# On donne une petite poussée vers le prochain point pour franchir le blocage,
+		# et on réinitialise la vitesse pour repartir proprement.
 		var next := nav_agent.get_next_path_position()
 		var dir := global_position.direction_to(next)
-		global_position += dir * 0.4
-		nav_agent.target_position = nav_agent.get_final_position()
+		if dir.length_squared() > 0.0001:
+			velocity = dir * MOVE_SPEED
+		else:
+			velocity = Vector3.ZERO
 		return true
 	return false
 
@@ -479,13 +494,20 @@ func _step(_delta: float) -> void:
 	else:
 		desired = Vector3.ZERO
 	
+	# LISSAGE DE VITESSE : la vitesse converge doucement vers la vitesse désirée
+	# (accélération/décélération) pour des démarrages et arrêts naturels, sans
+	# à-coups ni tremblements.
 	_apply_movement(desired)
 
 func _apply_movement(vel: Vector3) -> void:
+	# Lissage : la vitesse converge doucement vers la vitesse horizontale désirée,
+	# ce qui adoucit les démarrages/arrêts. La gravité (Y) reste inchangée.
+	var target_xz := Vector2(vel.x, vel.z)
+	var cur_xz := Vector2(velocity.x, velocity.z)
+	cur_xz = cur_xz.lerp(target_xz, 0.15)
+	velocity.x = cur_xz.x
+	velocity.z = cur_xz.y
 	# On conserve la vitesse verticale (gravité) calculée dans _physics_process
-	var vertical_vel := velocity.y
-	velocity = vel
-	velocity.y = vertical_vel
 	
 	move_and_slide()
 	

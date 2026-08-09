@@ -49,6 +49,7 @@ shadow_enabled = true
 [node name="NavigationRegion3D" type="NavigationRegion3D" parent="." unique_id=573311302]
 
 [node name="Floor" type="StaticBody3D" parent="NavigationRegion3D" unique_id=2050070170]
+collision_layer = 8
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="NavigationRegion3D/Floor" unique_id=821439097]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0)
