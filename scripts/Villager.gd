@@ -472,31 +472,24 @@ func _stuck_check(delta: float) -> bool:
 	return false
 
 func _step(_delta: float) -> void:
-	var target := nav_agent.target_position
+	# DÉPLACEMENT DIRECT : le paysan vise la DESTINATION FINALE (pas les waypoints
+	# intermédiaires du navmesh). Comme il traverse physiquement tous les obstacles
+	# (collision_mask = sol uniquement), suivre les waypoints ne sert à rien et
+	# provoquait des oscillations (le paysan "tournait dans tous les sens").
+	# Viser le point final est 100% stable : aucune oscillation, aucun blocage.
+	var target := nav_agent.get_final_position()
+	if target == Vector3.ZERO:
+		target = nav_agent.target_position
+	
+	var to_target := target - global_position
+	to_target.y = 0.0
+	var dist := to_target.length()
+	
 	var desired := Vector3.ZERO
-	var map_ready: bool = NavigationServer3D.map_get_iteration_id(nav_agent.get_navigation_map()) > 0
-	
-	# RE-ROUTAGE AGRESSIF : Si le paysan hésite ou semble ralentir contre un obstacle,
-	# on force une réévaluation de la position suivante.
-	if map_ready and not nav_agent.is_navigation_finished():
-		var next := nav_agent.get_next_path_position()
-		desired = next - global_position
-		desired.y = 0.0
-	else:
-		desired = target - global_position
-		desired.y = 0.0
-	
-	var dist := desired.length()
 	if dist > 0.001:
-		# On augmente la précision du virage
-		desired = desired.normalized() * MOVE_SPEED
-		_facing(desired)
-	else:
-		desired = Vector3.ZERO
+		desired = to_target.normalized() * MOVE_SPEED
+		_facing(to_target)
 	
-	# LISSAGE DE VITESSE : la vitesse converge doucement vers la vitesse désirée
-	# (accélération/décélération) pour des démarrages et arrêts naturels, sans
-	# à-coups ni tremblements.
 	_apply_movement(desired)
 
 func _apply_movement(vel: Vector3) -> void:
