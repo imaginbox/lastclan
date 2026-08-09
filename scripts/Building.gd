@@ -19,66 +19,66 @@ const TYPES := {
 		"name": "Hôtel de ville",
 		"cost_gold": 0, "cost_wood": 0,
 		"footprint": 2, "max_level": 3,
-		"upg_gold": 100, "upg_wood": 150, "upg_stone": 50,
+		"upg_gold": 60, "upg_wood": 100, "upg_stone": 40,
 		"min_th_level": 0,
 		"color": Color(0.6, 0.4, 0.2),
 		"recruit_gold": 40, "recruit_food": 5, "recruit_pop": 1,
-		"production": { "gold": 0.5 },
+		"production": { "gold": 0.8 },
 	},
 	Type.BARRACKS: {
 		"name": "Caserne",
-		"cost_gold": 150, "cost_wood": 120, "cost_stone": 60,
+		"cost_gold": 100, "cost_wood": 80, "cost_stone": 40,
 		"footprint": 2, "max_level": 3,
-		"upg_gold": 120, "upg_wood": 100,
+		"upg_gold": 80, "upg_wood": 60,
 		"min_th_level": 2,
 		"color": Color(0.7, 0.2, 0.2),
-		"train_gold": 60, "train_wood": 20, "train_pop": 1,
-		"train_time": 5.0,
+		"train_gold": 45, "train_wood": 15, "train_pop": 1,
+		"train_time": 4.0,
 	},
 	Type.HOUSE: {
 		"name": "Maison",
-		"cost_gold": 50, "cost_wood": 80,
+		"cost_gold": 40, "cost_wood": 60,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 60, "upg_wood": 60,
+		"upg_gold": 40, "upg_wood": 40,
 		"min_th_level": 1,
 		"color": Color(0.8, 0.6, 0.35),
-		"pop_provided": 10,
+		"pop_provided": 8,
 	},
 	Type.TOWER: {
 		"name": "Tour de garde",
-		"cost_gold": 120, "cost_wood": 100, "cost_stone": 180,
+		"cost_gold": 80, "cost_wood": 70, "cost_stone": 120,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 100, "upg_wood": 80, "upg_stone": 150,
+		"upg_gold": 60, "upg_wood": 50, "upg_stone": 90,
 		"min_th_level": 2,
 		"color": Color(0.4, 0.4, 0.5),
-		"attack_damage": 12,
+		"attack_damage": 10,
 	},
 	Type.FERME: {
 		"name": "Ferme",
-		"cost_gold": 40, "cost_wood": 80,
+		"cost_gold": 30, "cost_wood": 60,
 		"footprint": 2, "max_level": 3,
-		"upg_gold": 50, "upg_wood": 50,
+		"upg_gold": 40, "upg_wood": 40,
 		"min_th_level": 1,
 		"color": Color(0.9, 0.8, 0.2),
-		"production": { "food": 3 },
+		"production": { "food": 4 },
 	},
 	Type.CARRIERE: {
 		"name": "Carrière",
-		"cost_gold": 100, "cost_wood": 120, "cost_stone": 20,
+		"cost_gold": 60, "cost_wood": 80, "cost_stone": 15,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 80, "upg_wood": 80,
+		"upg_gold": 50, "upg_wood": 50,
 		"min_th_level": 1,
 		"color": Color(0.6, 0.6, 0.65),
-		"production": { "stone": 1 },
+		"production": { "stone": 2 },
 	},
 	Type.MINE_OR: {
 		"name": "Mine d'Or",
-		"cost_gold": 0, "cost_wood": 150, "cost_stone": 100,
+		"cost_gold": 0, "cost_wood": 100, "cost_stone": 60,
 		"footprint": 1, "max_level": 3,
-		"upg_gold": 100, "upg_wood": 100,
+		"upg_gold": 60, "upg_wood": 60,
 		"min_th_level": 1,
 		"color": Color(1.0, 0.84, 0.0),
-		"production": { "gold": 2.5 },
+		"production": { "gold": 3.0 },
 	},
 }
 const HEIGHT := 2.0   # hauteur de base d'un bâtiment (mètres)
@@ -91,6 +91,11 @@ var grid_cell := Vector2i.ZERO   # cellule d'ancrage (bas-gauche de l'empreinte)
 
 var _mesh: MeshInstance3D = null
 var _base_material: StandardMaterial3D = null
+# Accumulateur fractionnaire de production. `int(prod * delta)` à 60fps donne
+# toujours 0 (ex. 2.5/s × 0.016s = 0.04 → int = 0), donc sans accumulation les
+# bâtiments ne produisent JAMAIS rien. On cumule les fractions et on ne convertit
+# en entier que quand le total dépasse 1. Clé = type de ressource ("gold", "wood"...).
+var _prod_acc: Dictionary = { "gold": 0.0, "wood": 0.0, "stone": 0.0, "food": 0.0 }
 
 func _ready() -> void:
 	# COLLISION RTS : les bâtiments sont des obstacles physiques (layer 1).
@@ -166,18 +171,36 @@ func production_per_sec() -> Dictionary:
 		out[key] = int(base[key] * level)
 	return out
 
-## Ajoute la production passive à l'économie.
+## Production actuelle par seconde en FLOTTANT (base × niveau), sans troncature.
+## Utilisée par _produce pour que l'accumulation reçoive les valeurs exactes.
+func production_float_per_sec() -> Dictionary:
+	var base: Dictionary = _cfg().get("production", {})
+	var out := {}
+	for key in base:
+		out[key] = float(base[key]) * float(level)
+	return out
+
+## Ajoute la production passive à l'économie, en ACCUMULANT les fractions.
+## À 60fps, prod × delta est toujours < 1 (ex. 3/s × 0.016 = 0.05). On additionne
+## ces fractions dans _prod_acc et on ne verse à l'économie que les unités entières
+## dès qu'elles franchissent 1. Ainsi une production de 3 nourriture/s produit bien
+## ~3 par seconde (ou 0.8 or/s pour la HDV), et non 0 en permanence.
 func _produce(delta: float) -> void:
 	if not is_producer():
 		return
 	var rm := get_node("/root/ResourceManager")
-	var prod := production_per_sec()
-	if prod.has("food"):
-		rm.add_food(int(prod["food"] * delta))
-	if prod.has("stone"):
-		rm.add_stone(int(prod["stone"] * delta))
-	if prod.has("gold"):
-		rm.add_gold(int(prod["gold"] * delta))
+	var prod := production_float_per_sec()
+	for res in _prod_acc:
+		if prod.has(res):
+			_prod_acc[res] += prod[res] * delta
+			var whole: int = int(_prod_acc[res])
+			if whole > 0:
+				_prod_acc[res] -= float(whole)
+				match res:
+					"gold": rm.add_gold(whole)
+					"wood": rm.add_wood(whole)
+					"stone": rm.add_stone(whole)
+					"food": rm.add_food(whole)
 
 ## --- Effets par type ---
 ## Population fournie (maisons) : augmente avec le niveau.

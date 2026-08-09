@@ -1149,6 +1149,8 @@ func _refresh_building_panel() -> void:
 			info += "Produit : +%d nourriture/s\n" % prod["food"]
 		if prod.has("stone"):
 			info += "Produit : +%d pierre/s\n" % prod["stone"]
+		if prod.has("gold"):
+			info += "Produit : +%d or/s\n" % prod["gold"]
 	if not b.is_full_level():
 		var uc := b.get_upgrade_cost()
 		info += "Améliorer : %d or, %d bois" % [uc["gold"], uc["wood"]]
