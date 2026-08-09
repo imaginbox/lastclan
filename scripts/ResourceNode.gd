@@ -99,8 +99,13 @@ func _process(delta: float) -> void:
 			_update_visual()
 
 func _ready() -> void:
-	# COLLISION RTS : les ressources sont des obstacles physiques (layer 1).
-	collision_layer = 1
+	# COUCHE DÉDIÉE À LA SÉLECTION (couche 3) : les ressources (arbres, rochers)
+	# ont une collision pour que le raycast de sélection (main.gd) puisse les
+	# cliquer. Le paysan a collision_mask = 8 (UNIQUEMENT le sol en couche 4), donc
+	# il ne percute PAS les arbres en couche 3 -> il les traverse librement.
+	# L'interaction de récolte se fait par PORTÉE (GATHER_REACH) : dès que le
+	# paysan est assez proche du centre de la ressource, il récolte, sans blocage.
+	collision_layer = 4
 	collision_mask = 0
 	
 	amount = clampi(starting_amount, 0, max_amount)

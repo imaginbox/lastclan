@@ -26,8 +26,14 @@ const GATHER_TIME: float = 2.0
 # malgré sa collision (arbre : boîte 1.8 → bord à 0.9 + rayon 0.35 = ~1.25).
 # Anciennement 1.2, trop juste pour les arbres : le paysan restait bloqué au
 # bord sans jamais déclencher la récolte.
-# Distance de portée : ajustée à 2.2 pour être proche de la source sans coller.
+# Distance de portée pour un déplacement libre (clic droit sur le sol) :
+# précise, on s'arrête exactement sur le point.
 const REACH_DISTANCE: float = 0.15
+# Portée de RÉCOLTE : le paysan vise le CENTRE de la ressource mais l'arbre est
+# un obstacle volumineux (~1m de rayon) découpé du navmesh. Il s'arrête donc au
+# bord de l'arbre, pas au centre. Il faut une portée généreuse (> rayon de
+# l'obstacle) pour déclencher la récolte, sinon il "bloque" au bord en boucle.
+const GATHER_REACH: float = 1.4
 # Rayon de livraison à l'hôtel de ville : ajusté à 2.0 pour un visuel propre.
 const DELIVER_DISTANCE: float = 2.0
 const VILLAGE_HALF: float = 60.0      # le paysan peut explorer une large zone autour de sa base
@@ -173,21 +179,13 @@ func _begin_gather(resource_node: ResourceNode) -> void:
 	_assigned_resource = resource_node
 	_carried_type = resource_node.resource_type
 	_gather_timer = 0.0
-	# Légère décalage aléatoire autour de la source : plusieurs paysans affectés à
-	# la même ressource se répartissent autour d'elle au lieu de s'empiler au centre.
+	# Le paysan vise le CENTRE de la ressource. Comme il traverse physiquement les
+	# obstacles (collision_mask = sol uniquement), il peut s'approcher directement
+	# jusqu'à GATHER_REACH sans être renvoyé au bord de l'arbre par le navmesh.
+	# Légère décalage pour que plusieurs paysans se répartissent autour de la source.
 	var approach := resource_node.global_position
-	approach.x += randf_range(-0.9, 0.9)
-	approach.z += randf_range(-0.9, 0.9)
-	# La ressource est découpée comme obstacle dans le navmesh : si le point
-	# aléatoire tombe dans cet obstacle, aucun chemin n'existe et le paysan reste
-	# bloqué au bord. On projette donc le point sur le navmesh -> il atterrit juste
-	# sur le bord atteignable de la source, toujours accessible (REACH_DISTANCE couvre).
-	var nav_map := get_world_3d().navigation_map
-	# Ne projette sur le navmesh que si la carte est synchronisée (sinon la requête
-	# échoue avec "before first map synchronization"). Sinon on garde le point brut,
-	# la navigation se rajustera naturellement dès que le navmesh sera prêt.
-	if NavigationServer3D.map_is_active(nav_map) and NavigationServer3D.map_get_iteration_id(nav_map) > 0:
-		approach = NavigationServer3D.map_get_closest_point(nav_map, approach)
+	approach.x += randf_range(-0.6, 0.6)
+	approach.z += randf_range(-0.6, 0.6)
 	nav_agent.target_position = approach
 	_arm_watch()
 	set_state(State.GOING_TO_RESOURCE)
@@ -207,13 +205,9 @@ func _move_to_target(delta: float) -> void:
 	# une détection par collision : si le paysan touche l'arbre, il récolte.
 	var reached: bool = false
 	if _assigned_resource != null:
-		reached = _hdist(_assigned_resource.global_position) <= REACH_DISTANCE
-		# Détection par contact : si on bute contre la ressource, c'est qu'on est arrivé.
-		if not reached and get_slide_collision_count() > 0:
-			for i in get_slide_collision_count():
-				if get_slide_collision(i).get_collider() == _assigned_resource:
-					reached = true
-					break
+		# Portée de RÉCOLTE généreuse : le paysan s'arrête au bord de l'arbre
+		# (obstacle ~1m de rayon) et déclenche la récolte, sans tourner en boucle.
+		reached = _hdist(_assigned_resource.global_position) <= GATHER_REACH
 	else:
 		reached = _hdist(nav_agent.target_position) <= REACH_DISTANCE
 	
@@ -472,14 +466,13 @@ func _stuck_check(delta: float) -> bool:
 	return false
 
 func _step(_delta: float) -> void:
-	# DÉPLACEMENT DIRECT : le paysan vise la DESTINATION FINALE (pas les waypoints
-	# intermédiaires du navmesh). Comme il traverse physiquement tous les obstacles
-	# (collision_mask = sol uniquement), suivre les waypoints ne sert à rien et
-	# provoquait des oscillations (le paysan "tournait dans tous les sens").
-	# Viser le point final est 100% stable : aucune oscillation, aucun blocage.
-	var target := nav_agent.get_final_position()
-	if target == Vector3.ZERO:
-		target = nav_agent.target_position
+	# DÉPLACEMENT DIRECT : le paysan vise la DESTINATION DEMANDÉE (target_position),
+	# pas les waypoints intermédiaires du navmesh. Comme il traverse physiquement
+	# tous les obstacles (collision_mask = sol uniquement), suivre les waypoints ne
+	# sert à rien et provoquait des oscillations (le paysan "tournait dans tous les
+	# sens"). get_final_position() peut être déformé par un obstacle navmesh ; on
+	# vise donc directement le point demandé -> stable et sans blocage.
+	var target := nav_agent.target_position
 	
 	var to_target := target - global_position
 	to_target.y = 0.0
