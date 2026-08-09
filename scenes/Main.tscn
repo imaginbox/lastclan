@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bmg80wgq0ffff" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" uid="uid://bj7m87nrcklxd" path="res://scripts/CameraController.gd" id="2_cam"]
-[ext_resource type="Texture2D" uid="uid://dm4nq8gqk3nf8" path="res://assets/generated/grass_ground.png" id="3_grass"]
+[ext_resource type="Texture2D" uid="uid://bgathr3wymqxd" path="res://assets/generated/grass_blotch.png" id="3_grass"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -32,7 +32,7 @@ size = Vector3(400, 2, 400)
 [sub_resource type="StandardMaterial3D" id="FloorMat"]
 albedo_color = Color(0.45, 0.72, 0.35, 1)
 albedo_texture = ExtResource("3_grass")
-uv1_scale = Vector3(200, 200, 1)
+uv1_scale = Vector3(100, 100, 1)
 
 [node name="Main" type="Node3D" unique_id=319320522]
 script = ExtResource("1_main")
