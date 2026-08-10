@@ -61,6 +61,9 @@ var _drag_selecting := false
 # --- Tactile : nombre de doigts posés et autorisation du tap (1 seul doigt) ---
 var _touch_count := 0
 var _tap_allowed := true
+# --- Bouton d'ordre mobile (remplace le clic droit) ---
+var _order_btn: Button = null
+var _order_armed := false
 
 ## --- HUD ---
 var _hud_gold_label: Label = null
@@ -112,6 +115,7 @@ func _ready() -> void:
 	_setup_hud()
 	_setup_build_ui()
 	_setup_building_panel()
+	_setup_order_button()
 	# Le monde se construit une fois la position de base connue :
 	#   - hors ligne : Lobby la fournit immédiatement (origine).
 	#   - en ligne  : Lobby la fournit dès la connexion au relais.
@@ -743,7 +747,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not event.pressed and _touch_count <= 0:
 			_touch_count = 0
 			if _tap_allowed:
-				if _ghost_active():
+				if _order_armed:
+					_order_armed = false
+					_refresh_order_button()
+					_order_action(event.position)
+				elif _ghost_active():
 					_confirm_ghost()
 				else:
 					_on_left_release(event.position)
@@ -822,11 +830,13 @@ func _deselect_all() -> void:
 		_selected_building.set_selected(false)
 		_selected_building = null
 	_building_panel.visible = false
+	_refresh_order_button()
 
 func _update_selection_feedback() -> void:
 	for u in _selected_units:
 		if is_instance_valid(u):
 			u.call("set_selected", true)
+	_refresh_order_button()
 
 func _select_building(b: Building) -> void:
 	_selected_building = b

@@ -25,6 +25,7 @@ var _last_mouse := Vector2.ZERO
 var _touches := {}                  # index tactile -> position écran
 var _prev_centroid := Vector2.ZERO  # centre des doigts au geste précédent
 var _panning := false               # vrai quand ≥ 2 doigts (on déplace la carte)
+var _pinch_dist := 0.0              # distance entre les 2 doigts (pour le zoom)
 
 func _ready() -> void:
 	# Projection orthographique : pas de déformation en perspective.
@@ -80,12 +81,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			_touches[event.index] = event.position
 			_update_touch_state()
 		if _panning:
+			# Pincement manuel : on observe la distance entre les 2 doigts.
+			var pts := _touches.values()
+			if pts.size() == 2:
+				var cur: float = pts[0].distance_to(pts[1])
+				if _pinch_dist > 0.0 and cur > 0.0:
+					_size = clampf(_size * (_pinch_dist / cur), min_size, max_size)
+				_pinch_dist = cur
 			var c := _touch_centroid()
 			_pan(c - _prev_centroid)
 			_prev_centroid = c
-	# Pincement / geste de zoom tactile (envoyé par l'OS sur mobile).
-	elif event is InputEventMagnifyGesture:
-		_size = clampf(_size / (event.factor if event.factor > 0.0 else 1.0), min_size, max_size)
 
 func _process(_delta: float) -> void:
 	_apply()
@@ -141,8 +146,14 @@ func _update_touch_state() -> void:
 	if _touches.size() >= 2:
 		_panning = true
 		_prev_centroid = _touch_centroid()
+		# On repart de la distance actuelle pour éviter un saut de zoom quand on
+		# pose/repose le 2e doigt.
+		var pts := _touches.values()
+		if pts.size() == 2:
+			_pinch_dist = pts[0].distance_to(pts[1])
 	else:
 		_panning = false
+		_pinch_dist = 0.0
 
 ## Centre ("centroid") des doigts actuellement posés sur l'écran.
 func _touch_centroid() -> Vector2:
