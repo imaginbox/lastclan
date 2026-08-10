@@ -1036,6 +1036,47 @@ func _refresh_unit_counts() -> void:
 func _notify(text: String) -> void:
 	print(text)
 
+# ============================================================ BOUTON ORDRE (mobile)
+
+## Bouton flottant qui remplace le clic droit sur mobile. Apparaît dès qu'une
+## unité est sélectionnée ; on le touche pour "armer" l'ordre, puis un tap sur
+## le sol / une ressource / un ennemi déclenche _order_action(screen_pos).
+func _setup_order_button() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 42
+	add_child(layer)
+	_order_btn = Button.new()
+	_order_btn.text = "📋 Ordre"
+	_order_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_order_btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_order_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_order_btn.offset_left = -150.0
+	_order_btn.offset_top = -70.0
+	_order_btn.offset_right = -16.0
+	_order_btn.offset_bottom = -16.0
+	_order_btn.custom_minimum_size = Vector2(134, 54)
+	_order_btn.visible = false
+	_order_btn.pressed.connect(_arm_order)
+	layer.add_child(_order_btn)
+
+## Arme l'ordre : le prochain tap donnera l'ordre aux unités sélectionnées.
+func _arm_order() -> void:
+	if _selected_units.is_empty():
+		return
+	_order_armed = true
+	_order_btn.text = "Touchez une cible"
+	_notify("Choisissez une cible : sol, ressource ou ennemi.")
+
+## Affiche/masque le bouton d'ordre selon qu'il y a une sélection d'unités.
+func _refresh_order_button() -> void:
+	var has_units := not _selected_units.is_empty()
+	if _order_btn != null:
+		_order_btn.visible = has_units
+	if not has_units:
+		_order_armed = false
+		if _order_btn != null:
+			_order_btn.text = "📋 Ordre"
+
 # ============================================================ UI : CONSTRUCTION
 
 func _setup_build_ui() -> void:
