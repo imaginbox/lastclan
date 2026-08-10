@@ -33,10 +33,19 @@ func _ready() -> void:
 		anim_player = model.get_model_anim_player()
 	nav_agent.path_desired_distance = REACH_DISTANCE
 	nav_agent.target_desired_distance = REACH_DISTANCE
-	collision_mask = 1
+	# Comme le paysan, le soldat ne détecte QUE le sol pour s'y ancrer par gravité
+	# (il traverse arbres/bâtiments). Sans ça il peut dériver verticalement et
+	# paraître "disparaître" lorsqu'on le déplace.
+	collision_mask = 8
 
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
+	# GRAVITÉ : plaquer le soldat au sol (comme le paysan). Sans elle le corps
+	# peut dériver verticalement pendant le déplacement et sembler disparaître.
+	if not is_on_floor():
+		velocity.y -= 20.0 * delta
+	else:
+		velocity.y = -2.0
 	match _state:
 		State.IDLE:
 			velocity = Vector3.ZERO

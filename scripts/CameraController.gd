@@ -59,6 +59,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			_yaw -= deg_to_rad(45.0)
 		elif event.keycode == KEY_E:
 			_yaw += deg_to_rad(45.0)
+	# --- TACTILE : pour jouer sur écran tactile ---
+	# 1 doigt qui glisse = déplacer la carte (même logique que la molette pressée).
+	elif event is InputEventScreenTouch:
+		_dragging = event.pressed
+		_last_mouse = event.position
+	elif event is InputEventScreenDrag and _dragging:
+		_pan(event.position - _last_mouse)
+		_last_mouse = event.position
+	# Pincement / geste de zoom tactile (envoyé par l'OS sur mobile).
+	elif event is InputEventMagnifyGesture:
+		_size = clampf(_size / (event.factor if event.factor > 0.0 else 1.0), min_size, max_size)
 
 func _process(_delta: float) -> void:
 	_apply()

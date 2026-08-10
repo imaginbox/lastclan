@@ -731,6 +731,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_overlay_rect.from = _press_pos
 				_overlay_rect.to = event.position
 				_overlay_rect.queue_redraw()
+	# --- TACTILE : un tap simple = un clic gauche (sélection ou pose bâtiment) ---
+	elif event is InputEventScreenTouch and not event.pressed:
+		if _ghost_active():
+			_confirm_ghost()
+		else:
+			_on_left_release(event.position)
 
 func _on_left_release(release_pos: Vector2) -> void:
 	if not _dragging:
