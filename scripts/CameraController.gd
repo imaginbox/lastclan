@@ -21,6 +21,10 @@ var _size: float = 22.0                    # hauteur de la vue orthographique
 var _yaw: float = deg_to_rad(45.0)
 var _dragging := false
 var _last_mouse := Vector2.ZERO
+# --- Touches tactiles actives (pour le pan à 2 doigts) ---
+var _touches := {}                  # index tactile -> position écran
+var _prev_centroid := Vector2.ZERO  # centre des doigts au geste précédent
+var _panning := false               # vrai quand ≥ 2 doigts (on déplace la carte)
 
 func _ready() -> void:
 	# Projection orthographique : pas de déformation en perspective.
@@ -60,13 +64,25 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_E:
 			_yaw += deg_to_rad(45.0)
 	# --- TACTILE : pour jouer sur écran tactile ---
-	# 1 doigt qui glisse = déplacer la carte (même logique que la molette pressée).
+	#   1 doigt = tap (sélection / ordre, géré dans main.gd)
+	#   2 doigts = déplacer la carte (le centre des deux doigts suit le doigt)
+	#   Pincer = zoomer
 	elif event is InputEventScreenTouch:
-		_dragging = event.pressed
-		_last_mouse = event.position
-	elif event is InputEventScreenDrag and _dragging:
-		_pan(event.position - _last_mouse)
-		_last_mouse = event.position
+		if event.pressed:
+			_touches[event.index] = event.position
+		else:
+			_touches.erase(event.index)
+		_update_touch_state()
+	elif event is InputEventScreenDrag:
+		if _touches.has(event.index):
+			_touches[event.index] = event.position
+		elif event.pressed:
+			_touches[event.index] = event.position
+			_update_touch_state()
+		if _panning:
+			var c := _touch_centroid()
+			_pan(c - _prev_centroid)
+			_prev_centroid = c
 	# Pincement / geste de zoom tactile (envoyé par l'OS sur mobile).
 	elif event is InputEventMagnifyGesture:
 		_size = clampf(_size / (event.factor if event.factor > 0.0 else 1.0), min_size, max_size)
@@ -119,3 +135,18 @@ func _pan(screen_delta: Vector2) -> void:
 
 func _mouse_pos() -> Vector2:
 	return get_viewport().get_mouse_position()
+
+## Met à jour l'état du pan tactile : on ne déplace la carte qu'avec ≥ 2 doigts.
+func _update_touch_state() -> void:
+	if _touches.size() >= 2:
+		_panning = true
+		_prev_centroid = _touch_centroid()
+	else:
+		_panning = false
+
+## Centre ("centroid") des doigts actuellement posés sur l'écran.
+func _touch_centroid() -> Vector2:
+	var sum := Vector2.ZERO
+	for p in _touches.values():
+		sum += p
+	return sum / float(_touches.size())

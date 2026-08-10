@@ -58,6 +58,9 @@ var _overlay_rect: SelectionRect = null
 var _press_pos := Vector2.ZERO
 var _dragging := false
 var _drag_selecting := false
+# --- Tactile : nombre de doigts posés et autorisation du tap (1 seul doigt) ---
+var _touch_count := 0
+var _tap_allowed := true
 
 ## --- HUD ---
 var _hud_gold_label: Label = null
@@ -731,12 +734,20 @@ func _unhandled_input(event: InputEvent) -> void:
 				_overlay_rect.from = _press_pos
 				_overlay_rect.to = event.position
 				_overlay_rect.queue_redraw()
-	# --- TACTILE : un tap simple = un clic gauche (sélection ou pose bâtiment) ---
-	elif event is InputEventScreenTouch and not event.pressed:
-		if _ghost_active():
-			_confirm_ghost()
-		else:
-			_on_left_release(event.position)
+	# --- TACTILE : un tap à 1 doigt = un clic gauche (sélection / pose bâtiment).
+	# Un geste à 2 doigts déplace la carte (géré par la caméra): on l'ignore ici.
+	elif event is InputEventScreenTouch:
+		_touch_count += 1 if event.pressed else -1
+		if _touch_count > 1:
+			_tap_allowed = false
+		if not event.pressed and _touch_count <= 0:
+			_touch_count = 0
+			if _tap_allowed:
+				if _ghost_active():
+					_confirm_ghost()
+				else:
+					_on_left_release(event.position)
+			_tap_allowed = true
 
 func _on_left_release(release_pos: Vector2) -> void:
 	if not _dragging:
