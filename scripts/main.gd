@@ -92,6 +92,11 @@ var _hud_room_label: Label = null
 var _hud_hover_label: Label = null
 var _hud_realm_label: Label = null
 var _hud_clan_label: Label = null
+## Sous-infos repliées (CoC) : Population / Royaume / Clan vivent dans un panneau
+## flottant accessibles via un bouton « + ». Repliées sur mobile, ouvertes sur PC.
+var _hud_extra_box: HBoxContainer = null
+var _hud_extra_panel: PanelContainer = null
+var _hud_plus_btn: Button = null
 var _clan_panel: PanelContainer = null
 var _clan_name_input: LineEdit = null
 var _clan_tag_input: LineEdit = null
@@ -173,6 +178,8 @@ func _ready() -> void:
 	_setup_build_ui()
 	_setup_building_panel()
 	_setup_order_button()
+	# Applique une première fois le layout selon l'orientation détectée.
+	_apply_orientation_layout()
 	# Le monde se construit une fois la position de base connue :
 	#   - hors ligne : Lobby la fournit immédiatement (origine).
 	#   - en ligne  : Lobby la fournit dès la connexion au relais.
@@ -1831,17 +1838,53 @@ func _setup_hud() -> void:
 	top.add_theme_stylebox_override("panel", tb)
 	layer.add_child(top)
 	var hb := HBoxContainer.new()
-	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.alignment = BoxContainer.ALIGNMENT_BEGIN
 	hb.add_theme_constant_override("separation", int(6 * _ui_scale))
 	top.add_child(hb)
-	# Pillules : icône + valeur, style CoC.
+	# Pillules : icône + valeur, style CoC (ressources principales toujours visibles).
 	_hud_gold_label = _make_resource_pill(hb, "🪙", Color(1.0, 0.85, 0.3))
 	_hud_wood_label = _make_resource_pill(hb, "🪵", Color(0.75, 0.55, 0.35))
 	_hud_stone_label = _make_resource_pill(hb, "🪨", Color(0.7, 0.72, 0.75))
 	_hud_food_label = _make_resource_pill(hb, "🍖", Color(0.9, 0.6, 0.4))
-	_hud_pop_label = _make_resource_pill(hb, "👥", Color(0.6, 0.9, 1.0))
+	# Bouton « + » : déplie les sous-infos (population, royaume, clan) — CoC.
+	_hud_plus_btn = Button.new()
+	_hud_plus_btn.name = "HudPlusButton"
+	_hud_plus_btn.text = "＋"
+	_hud_plus_btn.custom_minimum_size = Vector2(36 * _ui_scale, 36 * _ui_scale)
+	_hud_plus_btn.add_theme_font_size_override("font_size", int(20 * _ui_scale))
+	_hud_plus_btn.focus_mode = Control.FOCUS_NONE
+	_stylize_coc_button(_hud_plus_btn)
+	_hud_plus_btn.pressed.connect(_toggle_extra_info)
+	hb.add_child(_hud_plus_btn)
+	# ===== Panneau flottant des sous-infos (Population / Royaume / Clan).
+	_hud_extra_panel = PanelContainer.new()
+	_hud_extra_panel.name = "ExtraInfo"
+	_hud_extra_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_hud_extra_panel.grow_horizontal = Control.GROW_DIRECTION_END
+	_hud_extra_panel.offset_left = 10.0 * _ui_scale
+	_hud_extra_panel.offset_top = 56.0 * _ui_scale
+	_hud_extra_panel.visible = false
+	var eb := StyleBoxFlat.new()
+	eb.bg_color = Color(0.1, 0.12, 0.16, 0.92)
+	eb.corner_radius_top_left = 10
+	eb.corner_radius_top_right = 10
+	eb.corner_radius_bottom_left = 10
+	eb.corner_radius_bottom_right = 10
+	eb.border_color = Color(0.6, 0.7, 0.9, 0.4)
+	eb.set_border_width_all(2)
+	eb.content_margin_left = 12
+	eb.content_margin_right = 12
+	eb.content_margin_top = 10
+	eb.content_margin_bottom = 10
+	_hud_extra_panel.add_theme_stylebox_override("panel", eb)
+	layer.add_child(_hud_extra_panel)
+	_hud_extra_box = HBoxContainer.new()
+	_hud_extra_box.add_theme_constant_override("separation", int(10 * _ui_scale))
+	_hud_extra_panel.add_child(_hud_extra_box)
+	# Population.
+	_hud_pop_label = _make_resource_pill(_hud_extra_box, "👥", Color(0.6, 0.9, 1.0))
 	# Jauge du royaume (icône change selon la zone).
-	_hud_realm_label = _make_resource_pill(hb, "🌱", Color(0.95, 0.95, 0.75))
+	_hud_realm_label = _make_resource_pill(_hud_extra_box, "🌱", Color(0.95, 0.95, 0.75))
 	# Indicateur clan, compact.
 	_hud_clan_label = Label.new()
 	_hud_clan_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
@@ -1849,7 +1892,8 @@ func _setup_hud() -> void:
 	_hud_clan_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	_hud_clan_label.add_theme_constant_override("outline_size", 6)
 	_hud_clan_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hb.add_child(_hud_clan_label)
+	_hud_clan_label.custom_minimum_size = Vector2(0, 0)
+	_hud_extra_box.add_child(_hud_clan_label)
 	# Liaisons données -> UI.
 	if get_node_or_null("/root/Realm") != null:
 		Realm.realm_changed.connect(_on_realm_changed)
@@ -1914,12 +1958,37 @@ func _apply_orientation_layout() -> void:
 			_build_menu_grid.columns = 2
 		if _top_menu_panel != null:
 			_top_menu_panel.offset_left = -300.0 * _ui_scale
+		# Sous-infos repliées sur mobile (accès via le bouton « + »).
+		if _hud_extra_panel != null:
+			_hud_extra_panel.visible = false
+			_hud_plus_btn.modulate = Color.WHITE
 	else:
 		# Paysage : grille sur 3 colonnes.
 		if _build_menu_grid != null:
 			_build_menu_grid.columns = 3
 		if _top_menu_panel != null:
 			_top_menu_panel.offset_left = -320.0 * _ui_scale
+		# Sur PC, sous-infos ouvertes d'office (assez de place).
+		if _hud_extra_panel != null and not _hud_extra_panel.visible:
+			_hud_extra_panel.visible = true
+			_hud_plus_btn.modulate = Color(1, 0.8, 0.4)
+	# Position du panneau des sous-infos : on l'ancrer à droite en paysage pour
+	# ne pas recouvrir le bouton + à gauche. Ancres explicites (fiable sur CanvasLayer).
+	if _hud_extra_panel != null:
+		# Largeur du panneau des sous-infos (estimée : ressource + jauge + clan).
+		var ew: float = 460.0 * _ui_scale
+		if _is_portrait:
+			_hud_extra_panel.anchor_left = 0.0
+			_hud_extra_panel.anchor_right = 0.0
+			_hud_extra_panel.offset_left = 10.0 * _ui_scale
+			_hud_extra_panel.offset_right = (10.0 + ew) * _ui_scale
+			_hud_extra_panel.offset_top = 56.0 * _ui_scale
+		else:
+			_hud_extra_panel.anchor_left = 1.0
+			_hud_extra_panel.anchor_right = 1.0
+			_hud_extra_panel.offset_left = -(ew + 12.0) * _ui_scale
+			_hud_extra_panel.offset_right = -12.0 * _ui_scale
+			_hud_extra_panel.offset_top = 56.0 * _ui_scale
 
 
 func _on_resources_changed(gold: int, wood: int, stone: int, food: int) -> void:
@@ -2121,6 +2190,13 @@ func _toggle_top_menu() -> void:
 	# Ouvrir un sous-panel ferme l'autre.
 	if _top_menu_panel.visible:
 		_clan_panel.visible = false
+
+## Ouvre/ferme le panneau des sous-infos (Population / Royaume / Clan).
+func _toggle_extra_info() -> void:
+	if _hud_extra_panel == null:
+		return
+	_hud_extra_panel.visible = not _hud_extra_panel.visible
+	_hud_plus_btn.modulate = Color(1, 0.8, 0.4) if _hud_extra_panel.visible else Color.WHITE
 
 ## Affiche une popup simple de sélection de langue (CoC).
 func _toggle_language_popup() -> void:
