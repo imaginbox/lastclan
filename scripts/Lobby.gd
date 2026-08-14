@@ -30,6 +30,11 @@ signal roster_changed
 const WORLD_HALF: float = 190.0     # limite de placement des bases (mètres)
 const BASE_SPAWN_MIN: float = 8.0    # rayon minimal : proche du centre
 const BASE_SPAWN_MAX: float = 40.0   # rayon maximal : petite arène resserrée (marche ~20s entre bases opposées)
+## Taille (octets) des buffers WebSocket du peer multijoueur. Le défaut (64 Ko) se
+## sature vite sur les réseaux instables/à forte latence quand les RPC de synchro
+## s'empilent plus vite que la TCP ne les évacue → « Buffer payload full ! Dropping
+## data ». Un buffer large absorbe ces pics sans perdre d'état de jeu.
+const WS_BUFFER_BYTES: int = 8 * 1024 * 1024  # 8 Mo
 
 var is_online: bool = false
 var my_id: int = 0
@@ -201,6 +206,8 @@ func join_room(room: String) -> void:
 		return
 	var url: String = "%s/r/%s?u=%s&g=%s&v=1" % [relay_url, room_id, user_id, game_id]
 	var peer: WebSocketMultiplayerPeer = WebSocketMultiplayerPeer.new()
+	peer.inbound_buffer_size = WS_BUFFER_BYTES
+	peer.outbound_buffer_size = WS_BUFFER_BYTES
 	var err: Error = peer.create_client(url)
 	if err != OK:
 		connection_status.emit("Erreur de connexion (%d)" % err)
@@ -223,6 +230,8 @@ func _start_host() -> void:
 	if net_use_websocket:
 		# Serveur WebSocket (clients navigateur/mobile via itch.io).
 		var ws := WebSocketMultiplayerPeer.new()
+		ws.inbound_buffer_size = WS_BUFFER_BYTES
+		ws.outbound_buffer_size = WS_BUFFER_BYTES
 		var tls: TLSOptions = null
 		if not net_tls_cert.is_empty() and not net_tls_key.is_empty():
 			var key := CryptoKey.new()
@@ -265,6 +274,8 @@ func _start_client() -> void:
 		# Client WebSocket (navigateur/itch.io/mobile web). net_address est une URL
 		# ws:// ou wss:// complète (ex: wss://mondomaine.fr:7934).
 		var ws := WebSocketMultiplayerPeer.new()
+		ws.inbound_buffer_size = WS_BUFFER_BYTES
+		ws.outbound_buffer_size = WS_BUFFER_BYTES
 		err = ws.create_client(net_address)
 		peer = ws
 	else:

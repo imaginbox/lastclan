@@ -98,7 +98,7 @@ var _sync_timer: Timer = null
 ## Registre des bâtiments distants : "owner_peer:vector_string_of_cell" -> Building.
 var _remote_buildings: Dictionary = {}
 var _remote_building_root: Node3D = null
-const UNIT_SYNC_INTERVAL: float = 0.15  # ~6,6 envois/s
+const UNIT_SYNC_INTERVAL: float = 0.2  # ~5 envois/s (léger carrousel réseau instable)
 ## Fenêtre (ms) pendant laquelle la barre de vie reste affichée après la dernière
 ## attaque subie. Dès qu'il n'y a plus d'attaques, la barre disparaît au bout de
 ## HEALTH_BAR_VISIBLE_MS sans nouveau dégât.
