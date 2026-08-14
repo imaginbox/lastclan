@@ -122,15 +122,18 @@ func _build_ui() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(560, 0)
+	# Responsive : largeur pleine presque sur mobile, max 560 sur écran large.
+	var panel_w := minf(560.0, get_viewport_rect().size.x * 0.92)
+	panel.custom_minimum_size = Vector2(panel_w, 0)
 	center.add_child(panel)
 	var margin := MarginContainer.new()
 	for m in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
 		margin.add_theme_constant_override(m, 20)
 	panel.add_child(margin)
 	# Contenu défilable : évite que les boutons du bas soient coupés hors écran.
+	var scroll_h := maxf(300.0, get_viewport_rect().size.y * 0.8)
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 520)
+	scroll.custom_minimum_size = Vector2(0, scroll_h)
 	margin.add_child(scroll)
 	var vb := VBoxContainer.new()
 	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -76,6 +76,9 @@ var _order_hint: Label = null
 var _order_armed := false
 # --- Échelle UI (plus grande sur mobile) ---
 var _ui_scale: float = 1.0
+## True si l'écran est en portrait (plus haut que large) — guide la répartition
+## de l'UI CoC responsive (barre ressources en haut, dock en bas).
+var _is_portrait: bool = false
 
 ## --- HUD ---
 var _hud_gold_label: Label = null
@@ -155,6 +158,9 @@ func _ready() -> void:
 	# Détection tactile dès le début : toutes les UI (HUD, barre d'ordre, panels)
 	# doivent se construire avec la bonne échelle.
 	_ui_scale = 1.8 if DisplayServer.is_touchscreen_available() else 1.0
+	_recompute_orientation()
+	# Redimensionnement de la fenêtre -> ré-applique le layout responsive (portrait/paysage).
+	get_viewport().size_changed.connect(_refresh_responsive)
 	_setup_float_layer()
 	_setup_selection_overlay()
 	_setup_hud()
@@ -1796,75 +1802,52 @@ func _setup_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 40
 	add_child(layer)
-	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	panel.offset_left = 12.0
-	panel.offset_top = 12.0
-	# Fond sombre semi-transparent pour une lisibilité sur mobile
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.55)
-	bg.corner_radius_top_left = 8
-	bg.corner_radius_top_right = 8
-	bg.corner_radius_bottom_left = 8
-	bg.corner_radius_bottom_right = 8
-	bg.content_margin_left = 10
-	bg.content_margin_top = 6
-	bg.content_margin_right = 10
-	bg.content_margin_bottom = 6
-	panel.add_theme_stylebox_override("panel", bg)
-	layer.add_child(panel)
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_top", 8)
-	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 8)
-	panel.add_child(margin)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 2)
-	margin.add_child(vb)
-	var fs: int = int(16 * _ui_scale)
-	_hud_gold_label = Label.new()
-	_hud_wood_label = Label.new()
-	_hud_stone_label = Label.new()
-	_hud_food_label = Label.new()
-	_hud_pop_label = Label.new()
-	_hud_workers_label = Label.new()
-	_hud_soldiers_label = Label.new()
-	_hud_room_label = Label.new()
-	_hud_room_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
-	# Label « survol » : affiche le nom du joueur propriétaire d'un personnage ou
-	# bâtiment quand on passe la souris dessus. Vide par défaut (masqué).
-	_hud_hover_label = Label.new()
-	_hud_hover_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
-	_hud_hover_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	_hud_hover_label.add_theme_constant_override("outline_size", 6)
-	for l in [_hud_gold_label, _hud_wood_label, _hud_stone_label, _hud_food_label,
-			_hud_pop_label, _hud_workers_label, _hud_soldiers_label, _hud_room_label,
-			_hud_hover_label]:
-		l.add_theme_font_size_override("font_size", fs)
-		# Couleur claire pour la lisibilité sur fond sombre
-		l.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
-		vb.add_child(l)
-	_hud_hover_label.visible = false
-	var room_code := Lobby.room_id if Lobby.has_base and Lobby.is_online else "hors ligne"
-	_hud_room_label.text = "Partie : %s" % room_code
-	# Jauge « Sort du Royaume » : état du serveur piloté par l'activité collective.
-	# Ajoutée au HUD pour que chacun voie la santé du royaume et agisse en conséquence.
-	_hud_realm_label = Label.new()
-	_hud_realm_label.add_theme_font_size_override("font_size", fs)
-	_hud_realm_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	_hud_realm_label.add_theme_constant_override("outline_size", 6)
-	vb.add_child(_hud_realm_label)
+	# Barre de ressources CoC en haut : pillules horizontales (or/bois/pierre/
+	# nourriture/population). Full-width, centred, s'adapte portrait/paysage.
+	var top := PanelContainer.new()
+	top.name = "ResourceBar"
+	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	top.offset_top = 10.0 * _ui_scale
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tb := StyleBoxFlat.new()
+	tb.bg_color = Color(0.1, 0.12, 0.16, 0.85)
+	tb.corner_radius_top_left = 10
+	tb.corner_radius_top_right = 10
+	tb.corner_radius_bottom_left = 10
+	tb.corner_radius_bottom_right = 10
+	tb.border_color = Color(0.6, 0.7, 0.9, 0.35)
+	tb.set_border_width_all(2)
+	tb.content_margin_left = 8
+	tb.content_margin_right = 8
+	tb.content_margin_top = 6
+	tb.content_margin_bottom = 6
+	top.add_theme_stylebox_override("panel", tb)
+	layer.add_child(top)
+	var hb := HBoxContainer.new()
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_theme_constant_override("separation", int(6 * _ui_scale))
+	top.add_child(hb)
+	# Pillules : icône + valeur, style CoC.
+	_hud_gold_label = _make_resource_pill(hb, "🪙", Color(1.0, 0.85, 0.3))
+	_hud_wood_label = _make_resource_pill(hb, "🪵", Color(0.75, 0.55, 0.35))
+	_hud_stone_label = _make_resource_pill(hb, "🪨", Color(0.7, 0.72, 0.75))
+	_hud_food_label = _make_resource_pill(hb, "🍖", Color(0.9, 0.6, 0.4))
+	_hud_pop_label = _make_resource_pill(hb, "👥", Color(0.6, 0.9, 1.0))
+	# Jauge du royaume (icône change selon la zone).
+	_hud_realm_label = _make_resource_pill(hb, "🌱", Color(0.95, 0.95, 0.75))
+	# Indicateur clan, compact.
+	_hud_clan_label = Label.new()
+	_hud_clan_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_hud_clan_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
+	_hud_clan_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_hud_clan_label.add_theme_constant_override("outline_size", 6)
+	_hud_clan_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hb.add_child(_hud_clan_label)
+	# Liaisons données -> UI.
 	if get_node_or_null("/root/Realm") != null:
 		Realm.realm_changed.connect(_on_realm_changed)
 		_on_realm_changed(Realm.value, Realm.zone())
-	# Paneau d'identité : mon clan (ou la possibilité d'en créer/rejoindre un).
-	_hud_clan_label = Label.new()
-	_hud_clan_label.add_theme_font_size_override("font_size", fs)
-	_hud_clan_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
-	_hud_clan_label.add_theme_constant_override("outline_size", 6)
-	_hud_clan_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	vb.add_child(_hud_clan_label)
 	if get_node_or_null("/root/Clans") != null:
 		Clans.my_clan_changed.connect(_on_my_clan_changed)
 		_on_my_clan_changed()
@@ -1876,6 +1859,50 @@ func _setup_hud() -> void:
 	_refresh_unit_counts()
 	# Bouton pour ouvrir le panneau Clan (mobile + PC).
 	_setup_clan_button()
+
+## Crée une « pillule » CoC (fond arrondi + icône + valeur) dans un HBox.
+func _make_resource_pill(parent: HBoxContainer, icon: String, _icon_color: Color) -> Label:
+	var pill := PanelContainer.new()
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0.45)
+	sb.corner_radius_top_left = 8
+	sb.corner_radius_top_right = 8
+	sb.corner_radius_bottom_left = 8
+	sb.corner_radius_bottom_right = 8
+	sb.content_margin_left = 7
+	sb.content_margin_right = 7
+	sb.content_margin_top = 3
+	sb.content_margin_bottom = 3
+	pill.add_theme_stylebox_override("panel", sb)
+	var lab := Label.new()
+	var fs: int = int(15 * _ui_scale)
+	lab.add_theme_font_size_override("font_size", fs)
+	lab.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	lab.add_theme_constant_override("outline_size", 5)
+	lab.text = "%s 0" % icon
+	pill.add_child(lab)
+	parent.add_child(pill)
+	return lab
+
+## Détecte l'orientation courante (portrait si plus haut que large). Utilisée
+## par les helpers de layout pour répartir l'UI (barre ressources, dock, panels).
+func _recompute_orientation() -> void:
+	var size := get_viewport().get_visible_rect().size
+	_is_portrait = size.y > size.x
+
+## Ré-applique le layout responsive après un redimensionnement de fenêtre.
+func _refresh_responsive() -> void:
+	var pre := _is_portrait
+	_recompute_orientation()
+	if pre != _is_portrait:
+		# L'orientation a changé : on repositionne quelques ancres clés.
+		_apply_orientation_layout()
+
+func _apply_orientation_layout() -> void:
+	pass  # La barre ressources et le dock utilisent déjà des ancres Top-wide/sous.
+
 
 func _on_resources_changed(gold: int, wood: int, stone: int, food: int) -> void:
 	if _hud_gold_label != null:
@@ -1989,8 +2016,22 @@ func _setup_clan_button() -> void:
 	btn.offset_right = -12.0 * _ui_scale
 	btn.offset_bottom = (12.0 + 44.0 * _ui_scale) * _ui_scale
 	btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	_stylize_coc_button(btn)
 	btn.pressed.connect(_toggle_clan_panel)
 	layer.add_child(btn)
+	# Bouton Paramètres sous le bouton Clan (top-right).
+	var settings := Button.new()
+	settings.name = "SettingsButton"
+	settings.text = "⚙️"
+	settings.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	settings.offset_left = -150.0 * _ui_scale
+	settings.offset_top = (12.0 + 44.0 * _ui_scale) * _ui_scale + 6.0 * _ui_scale
+	settings.offset_right = -12.0 * _ui_scale
+	settings.offset_bottom = (12.0 + 44.0 * _ui_scale) * _ui_scale + 50.0 * _ui_scale
+	settings.add_theme_font_size_override("font_size", int(20 * _ui_scale))
+	_stylize_coc_button(settings)
+	settings.pressed.connect(_notify.bind("Paramètres (bientôt)"))
+	layer.add_child(settings)
 	# Le panneau s'ouvre au-dessus/beside du bouton.
 	_clan_panel = PanelContainer.new()
 	_clan_panel.name = "ClanPanel"
@@ -2189,6 +2230,7 @@ func _setup_order_button() -> void:
 		btn.custom_minimum_size = Vector2(110 * _ui_scale, 46 * _ui_scale)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+		_stylize_coc_button(btn)
 		btn.pressed.connect(_arm_order.bind(a[0]))
 		hb.add_child(btn)
 		_order_btns[a[0]] = btn
@@ -2198,6 +2240,7 @@ func _setup_order_button() -> void:
 	stop_btn.text = "🛑 Stop"
 	stop_btn.custom_minimum_size = Vector2(90 * _ui_scale, 46 * _ui_scale)
 	stop_btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	_stylize_coc_button(stop_btn)
 	stop_btn.pressed.connect(_cancel_selection)
 	hb.add_child(stop_btn)
 
@@ -2289,14 +2332,29 @@ func _setup_build_ui() -> void:
 	_build_panel.offset_left = 12.0
 	_build_panel.offset_top = -12.0
 	_build_panel.offset_bottom = -12.0
+	# Style CoC : barre sombre arrondie.
+	var fb := StyleBoxFlat.new()
+	fb.bg_color = Color(0.1, 0.12, 0.16, 0.9)
+	fb.corner_radius_top_left = 10
+	fb.corner_radius_top_right = 10
+	fb.corner_radius_bottom_left = 10
+	fb.corner_radius_bottom_right = 10
+	fb.border_color = Color(0.6, 0.7, 0.9, 0.35)
+	fb.set_border_width_all(2)
+	fb.content_margin_left = 8
+	fb.content_margin_right = 8
+	fb.content_margin_top = 6
+	fb.content_margin_bottom = 6
+	_build_panel.add_theme_stylebox_override("panel", fb)
 	layer.add_child(_build_panel)
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 8)
-	margin.add_theme_constant_override("margin_top", 6)
-	margin.add_theme_constant_override("margin_right", 8)
-	margin.add_theme_constant_override("margin_bottom", 6)
+	margin.add_theme_constant_override("margin_left", 4)
+	margin.add_theme_constant_override("margin_top", 3)
+	margin.add_theme_constant_override("margin_right", 4)
+	margin.add_theme_constant_override("margin_bottom", 3)
 	_build_panel.add_child(margin)
 	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
 	margin.add_child(hb)
 	_build_hb = hb
 	# Tous les types de bâtiments ; le filtrage par niveau d'hôtel de ville
@@ -2316,10 +2374,35 @@ func _setup_build_ui() -> void:
 		btn.tooltip_text = tooltip
 		btn.custom_minimum_size = Vector2(120 * _ui_scale, 56 * _ui_scale)
 		btn.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+		_stylize_coc_button(btn)
 		btn.pressed.connect(_on_build_button_pressed.bind(t))
 		hb.add_child(btn)
 		_build_buttons[t] = btn
 	_refresh_build_buttons()
+
+## Applique le style « bouton CoC » (arrondi, bordure claire, fond foncé).
+func _stylize_coc_button(b: Button) -> void:
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.2, 0.24, 0.32, 0.95)
+		sb.border_color = Color(0.7, 0.8, 1.0, 0.4)
+		sb.set_border_width_all(1)
+		sb.corner_radius_top_left = 8
+		sb.corner_radius_top_right = 8
+		sb.corner_radius_bottom_left = 8
+		sb.corner_radius_bottom_right = 8
+		sb.content_margin_left = 8
+		sb.content_margin_right = 8
+		sb.content_margin_top = 4
+		sb.content_margin_bottom = 4
+		if state == "hover" or state == "pressed":
+			sb.bg_color = Color(0.3, 0.36, 0.48, 1.0)
+			sb.border_color = Color(0.85, 0.9, 1.0, 0.7)
+		if state == "pressed":
+			sb.bg_color = Color(0.42, 0.5, 0.62, 1.0)
+		b.add_theme_stylebox_override(state, sb)
+	b.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	b.add_theme_color_override("font_hover_color", Color.WHITE)
 
 ## Affiche/masque les boutons de construction selon le niveau de l'hôtel de ville.
 func _refresh_build_buttons() -> void:
@@ -2366,14 +2449,29 @@ func _setup_building_panel() -> void:
 	_building_panel.offset_right = -12.0
 	_building_panel.offset_top = -12.0
 	_building_panel.offset_bottom = -12.0
+	# Style CoC : panneau sombre arrondi à droite.
+	var bbg := StyleBoxFlat.new()
+	bbg.bg_color = Color(0.1, 0.12, 0.16, 0.9)
+	bbg.corner_radius_top_left = 10
+	bbg.corner_radius_top_right = 10
+	bbg.corner_radius_bottom_left = 10
+	bbg.corner_radius_bottom_right = 10
+	bbg.border_color = Color(0.6, 0.7, 0.9, 0.35)
+	bbg.set_border_width_all(2)
+	bbg.content_margin_left = 10
+	bbg.content_margin_right = 10
+	bbg.content_margin_top = 8
+	bbg.content_margin_bottom = 8
+	_building_panel.add_theme_stylebox_override("panel", bbg)
 	layer.add_child(_building_panel)
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_top", 8)
-	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 6)
 	_building_panel.add_child(margin)
 	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
 	margin.add_child(vb)
 	_building_title = Label.new()
 	vb.add_child(_building_title)
@@ -2382,29 +2480,32 @@ func _setup_building_panel() -> void:
 	for l in [_building_title, _building_info]:
 		l.add_theme_font_size_override("font_size", int(15 * _ui_scale))
 		l.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
-	
 	_upgrade_button = Button.new()
 	_upgrade_button.text = "Améliorer"
 	_upgrade_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
 	_upgrade_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_stylize_coc_button(_upgrade_button)
 	_upgrade_button.pressed.connect(_on_upgrade_pressed)
 	vb.add_child(_upgrade_button)
 	_recruit_button = Button.new()
 	_recruit_button.text = "Recruter un paysan"
 	_recruit_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
 	_recruit_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_stylize_coc_button(_recruit_button)
 	_recruit_button.pressed.connect(_on_recruit_pressed)
 	vb.add_child(_recruit_button)
 	_train_button = Button.new()
 	_train_button.text = "Entraîner un soldat"
 	_train_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
 	_train_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_stylize_coc_button(_train_button)
 	_train_button.pressed.connect(_on_train_pressed)
 	vb.add_child(_train_button)
 	_move_button = Button.new()
 	_move_button.text = "Déplacer"
 	_move_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
 	_move_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_stylize_coc_button(_move_button)
 	_move_button.pressed.connect(_on_move_pressed)
 	vb.add_child(_move_button)
 	_building_panel.visible = false
