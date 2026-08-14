@@ -213,6 +213,12 @@ func _spawn_world() -> void:
 	# En ligne : prépare la réception des unités des autres joueurs + diffusion.
 	if Lobby.is_online:
 		_setup_remote_units()
+	# Timer local de mise à jour des barres de vie (online + offline).
+	var hb_timer := Timer.new()
+	hb_timer.wait_time = 0.15
+	hb_timer.autostart = true
+	hb_timer.timeout.connect(_update_all_local_health_bars)
+	add_child(hb_timer)
 	_await_frame_then_bake()
 
 ## Vide les nœuds du monde générés (ressources, décor, bâtiments, unités) pour
@@ -648,13 +654,20 @@ func _spawn_initial_buildings() -> void:
 	var house := _instantiate_building(Building.Type.HOUSE)
 	_place_building(house, base_cell + Vector2i(2, -1))
 
+## Ajoute cercle vert (au sol) + barre de vie (cachée) à une unité LOCALE.
+func _add_local_unit_visuals(unit: Node3D) -> void:
+	unit.add_child(_make_ground_circle(Color.GREEN))
+	unit.add_child(_make_health_bar_node())
+
 func _spawn_villagers() -> void:
 	var v: Node3D = VILLAGER_SCENE.instantiate()
 	villager_root.add_child(v)
 	v.global_position = _base_origin + Vector3(-2.0, 0.0, 0.0)
+	_add_local_unit_visuals(v)
 	var v2: Node3D = VILLAGER_SCENE.instantiate()
 	villager_root.add_child(v2)
 	v2.global_position = _base_origin + Vector3(-6.0, 0.0, -6.0)
+	_add_local_unit_visuals(v2)
 	_add_default_task(v)
 	_add_default_task(v2)
 	_refresh_unit_counts()
@@ -742,10 +755,12 @@ func _on_unit_requested(unit_type: int) -> void:
 		var s: Node3D = SOLDIER_SCENE.instantiate()
 		villager_root.add_child(s)
 		s.global_position = spawn_pos
+		_add_local_unit_visuals(s)
 	else:
 		var v: Node3D = VILLAGER_SCENE.instantiate()
 		villager_root.add_child(v)
 		v.global_position = spawn_pos
+		_add_local_unit_visuals(v)
 		_add_default_task(v)
 	_refresh_unit_counts()
 
@@ -785,6 +800,8 @@ func _collect_unit_states() -> Array:
 ## périodique) : ça couvre à la fois nos constructions initiales (base) ET celles
 ## de joueurs arrivés après coup, sans événement manquant.
 func _broadcast_units() -> void:
+	# Barres de vie locales : mises à jour même hors ligne (test/éditeur).
+	_update_all_local_health_bars()
 	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
 		return
 	var bstates: Array = _collect_building_states()
@@ -838,13 +855,15 @@ func _update_remote_units(owner_id: int, states: Array) -> void:
 	var reps: Array = _remote_rep[owner_id]
 	# S'assure qu'on a assez de représentations.
 	while reps.size() < states.size():
-		var cap := _make_remote_unit(owner_id, reps.size())
+		var st_new: Array = states[reps.size()]
+		var kind: int = int(st_new[3]) if st_new.size() > 3 else 0
+		var cap := _make_remote_unit(owner_id, reps.size(), kind)
 		_remote_units.add_child(cap)
 		reps.append(cap)
 	if not _remote_rep.has("_logged_%d" % owner_id) and states.size() > 0:
 		_remote_rep["_logged_%d" % owner_id] = true
 		_mp_log("SEE_UNITS peer=%d count=%d hp0=%.0f/%.0f" % [owner_id, states.size(), states[0][1], states[0][2]])
-	# Positionne les représentations actives + met à jour leur vie.
+	# Positionne les représentations actives + met à jour leur vie (barre de vie au lieu de couleur).
 	for i in states.size():
 		var st: Array = states[i]
 		var rep: RemoteUnit = reps[i]
@@ -853,7 +872,9 @@ func _update_remote_units(owner_id: int, states: Array) -> void:
 		rep.global_position = st[0]
 		var hpv: float = st[1]
 		var maxh: float = st[2]
-		_apply_remote_health(rep, hpv, maxh)
+		var hb := rep.get_node_or_null("HealthBar") as Node3D
+		if hb != null:
+			_update_health_bar(hb, hpv, maxh)
 	# Masque les représentations surnuméraires.
 	for i in range(states.size(), reps.size()):
 		reps[i].visible = false
@@ -877,24 +898,115 @@ func _remote_rep_mat(rep: Node3D) -> StandardMaterial3D:
 		return null
 	return rep.get_meta("_mat") as StandardMaterial3D
 
-## Crée une capsule colorée représentant une unité distante. C'est une
-## RemoteUnit (attaquable), qui relaie les dégâts au propriétaire réel.
-func _make_remote_unit(owner_id: int, index: int) -> RemoteUnit:
+## --- Composants visuels pour les unités (locales ET distantes) ---
+
+## Cercle au sol sous une unité : VERT pour les siennes, ROUGE pour les ennemies.
+func _make_ground_circle(col: Color) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.emission = col
+	mat.emission_energy_multiplier = 0.6
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material_override = mat
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.35
+	cm.bottom_radius = 0.35
+	cm.height = 0.01
+	mesh.mesh = cm
+	mesh.position = Vector3(0, 0.03, 0)
+	mesh.rotation_degrees = Vector3(90, 0, 0)
+	return mesh
+
+## Barre de vie 3D au-dessus d'une unité (billboard, cachée par défaut).
+func _make_health_bar_node() -> Node3D:
+	var container := Node3D.new()
+	container.position = Vector3(0, 2.2, 0)
+	container.visible = false
+	# Fond sombre (pleine largeur)
+	var bg := MeshInstance3D.new()
+	var bg_quad := QuadMesh.new()
+	bg_quad.size = Vector2(1.2, 0.12)
+	bg.mesh = bg_quad
+	var bg_mat := StandardMaterial3D.new()
+	bg_mat.albedo_color = Color(0.1, 0.1, 0.1, 0.7)
+	bg_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bg_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	bg_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bg.material_override = bg_mat
+	bg.name = "Bg"
+	container.add_child(bg)
+	# Barre remplie (verte/jaune/rouge selon ratio)
+	var fill := MeshInstance3D.new()
+	var fill_quad := QuadMesh.new()
+	fill_quad.size = Vector2(1.0, 0.1)
+	fill.mesh = fill_quad
+	var fill_mat := StandardMaterial3D.new()
+	fill_mat.albedo_color = Color.GREEN
+	fill_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fill_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	fill_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fill.material_override = fill_mat
+	fill.position.x = -0.5
+	fill.name = "Fill"
+	container.add_child(fill)
+	container.set_meta("bar_fill", fill)
+	container.name = "HealthBar"
+	return container
+
+## Met à jour la barre de vie : affichée uniquement si PV < max (combat/dégâts).
+func _update_health_bar(container: Node3D, hp: float, max_hp: float) -> void:
+	var ratio := clampf(hp / max_hp if max_hp > 0 else 0.0, 0.0, 1.0)
+	container.visible = ratio < 0.99
+	var fill: MeshInstance3D = container.get_meta("bar_fill", null) as MeshInstance3D
+	if fill == null:
+		return
+	var fq: QuadMesh = fill.mesh as QuadMesh
+	if fq == null:
+		return
+	fq.size = Vector2(ratio * 1.0, 0.1)
+	fill.position.x = -0.5 + ratio * 0.5
+	var fm: StandardMaterial3D = fill.material_override as StandardMaterial3D
+	if fm != null:
+		if ratio > 0.6:
+			fm.albedo_color = Color.GREEN
+		elif ratio > 0.3:
+			fm.albedo_color = Color.YELLOW
+		else:
+			fm.albedo_color = Color.RED
+
+## Met à jour les barres de vie de TOUTES les unités locales (online + offline).
+func _update_all_local_health_bars() -> void:
+	if villager_root == null:
+		return
+	for child in villager_root.get_children():
+		if child is CharacterBody3D and child.has_method("take_damage"):
+			var hb := child.get_node_or_null("HealthBar") as Node3D
+			if hb != null:
+				var hp: float = float(child.get("hp")) if child.get("hp") != null else 100.0
+				var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
+				_update_health_bar(hb, hp, mh)
+
+## Crée une unité distante avec le VRAI modèle (paysan/soldat) + cercle rouge + barre de vie.
+func _make_remote_unit(owner_id: int, index: int, kind: int) -> RemoteUnit:
 	var root := RemoteUnit.new()
 	root.owner_peer = owner_id
 	root.unit_index = index
 	root.relay = self
 	root.set_meta("owner", owner_id)
-	var mesh := MeshInstance3D.new()
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = _player_color(owner_id)
-	mat.roughness = 0.8
-	mesh.material_override = mat
-	mesh.mesh = CapsuleMesh.new()
-	mesh.mesh.height = 1.6
-	mesh.mesh.radius = 0.35
-	root.add_child(mesh)
-	root.set_meta("_mat", mat)
+	# Vrai modèle (comme les unités locales)
+	var model := VillagerModel.new()
+	model.name = "Model"
+	model.transform = Transform3D(Basis(Vector3(-1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, -1.0)), Vector3.ZERO)
+	if kind == 1:  # soldat → teinte rouge
+		model.tint = _player_color(owner_id).lerp(Color.RED, 0.5)
+	else:  # paysan → couleur du joueur
+		model.tint = _player_color(owner_id)
+	root.add_child(model)
+	# Cercle rouge au sol (ennemi)
+	root.add_child(_make_ground_circle(Color.RED))
+	# Barre de vie (cachée, apparaît en combat)
+	root.add_child(_make_health_bar_node())
 	return root
 
 ## Couleur stable associée à un peer (pour distinguer les joueurs).
