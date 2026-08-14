@@ -783,6 +783,12 @@ func _setup_remote_units() -> void:
 	_sync_timer.autostart = true
 	_sync_timer.timeout.connect(_broadcast_units)
 	add_child(_sync_timer)
+	# Synchro des bâtiments : timer SÉPARÉ et lent (rare, éviter la saturation buffer).
+	var b_timer := Timer.new()
+	b_timer.wait_time = 1.5
+	b_timer.autostart = true
+	b_timer.timeout.connect(_broadcast_buildings)
+	add_child(b_timer)
 
 ## Rassemble positions + santé de toutes nos unités (paysans + soldats).
 func _collect_unit_states() -> Array:
@@ -804,13 +810,22 @@ func _broadcast_units() -> void:
 	_update_all_local_health_bars()
 	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
 		return
-	var bstates: Array = _collect_building_states()
-	if bstates.size() > 0:
-		_sync_buildings.rpc(Lobby.my_id, bstates)
 	if villager_root.get_child_count() == 0:
 		return
 	var payload: Array = _collect_unit_states()
 	_sync_units.rpc(Lobby.my_id, payload)
+
+## Diffuse l'état des bâtiments sur un timer LENT (1.5s). Les bâtiments changent
+## rarement (construction/upgrade) : les envoyer à chaque tick d'unités (6.6×/s)
+## en RPC reliable saturait le buffer WebSocket sur les réseaux instables →
+## « Buffer payload full ! Dropping data ». Ici on garde le snapshot complet mais
+## espacé, ce qui couvre aussi les joueurs arrivés après coup.
+func _broadcast_buildings() -> void:
+	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
+		return
+	var bstates: Array = _collect_building_states()
+	if bstates.size() > 0:
+		_sync_buildings.rpc(Lobby.my_id, bstates)
 
 ## Rassemble l'état de TOUS nos bâtiments : [type, cell_x, cell_y, level].
 ## Diffusé périodiquement (voir _broadcast_units) pour que chaque joueur voie le
@@ -918,17 +933,19 @@ func _make_ground_circle(col: Color) -> MeshInstance3D:
 	return mesh
 
 ## Barre de vie 3D au-dessus d'une unité (billboard, cachée par défaut).
+## Fond + remplissage + NOMBRE de PV au-dessus (Label3D), pour savoir clairement
+## quand une unité perd de la vie.
 func _make_health_bar_node() -> Node3D:
 	var container := Node3D.new()
-	container.position = Vector3(0, 2.2, 0)
+	container.position = Vector3(0, 1.9, 0)
 	container.visible = false
 	# Fond sombre (pleine largeur)
 	var bg := MeshInstance3D.new()
 	var bg_quad := QuadMesh.new()
-	bg_quad.size = Vector2(1.2, 0.12)
+	bg_quad.size = Vector2(1.5, 0.18)
 	bg.mesh = bg_quad
 	var bg_mat := StandardMaterial3D.new()
-	bg_mat.albedo_color = Color(0.1, 0.1, 0.1, 0.7)
+	bg_mat.albedo_color = Color(0.05, 0.05, 0.05, 0.9)
 	bg_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	bg_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	bg_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -938,7 +955,7 @@ func _make_health_bar_node() -> Node3D:
 	# Barre remplie (verte/jaune/rouge selon ratio)
 	var fill := MeshInstance3D.new()
 	var fill_quad := QuadMesh.new()
-	fill_quad.size = Vector2(1.0, 0.1)
+	fill_quad.size = Vector2(1.3, 0.14)
 	fill.mesh = fill_quad
 	var fill_mat := StandardMaterial3D.new()
 	fill_mat.albedo_color = Color.GREEN
@@ -946,14 +963,29 @@ func _make_health_bar_node() -> Node3D:
 	fill_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	fill_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	fill.material_override = fill_mat
-	fill.position.x = -0.5
+	fill.position.x = -0.65
 	fill.name = "Fill"
 	container.add_child(fill)
+	# Nombre de PV au-dessus de la barre (Label3D billboard).
+	var lbl := Label3D.new()
+	lbl.name = "HpLabel"
+	lbl.position = Vector3(0, 0.24, 0)
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.pixel_size = 0.008
+	lbl.font_size = 64
+	lbl.modulate = Color.WHITE
+	lbl.outline_size = 16
+	lbl.outline_modulate = Color(0, 0, 0, 1)
+	lbl.no_depth_test = true
+	container.add_child(lbl)
 	container.set_meta("bar_fill", fill)
+	container.set_meta("bar_label", lbl)
 	container.name = "HealthBar"
 	return container
 
 ## Met à jour la barre de vie : affichée uniquement si PV < max (combat/dégâts).
+## Met aussi à jour le NOMBRE de PV (« 34/100 ») qui descend quand l'unité perd
+## de la vie, visible au-dessus de la barre.
 func _update_health_bar(container: Node3D, hp: float, max_hp: float) -> void:
 	var ratio := clampf(hp / max_hp if max_hp > 0 else 0.0, 0.0, 1.0)
 	container.visible = ratio < 0.99
@@ -963,8 +995,8 @@ func _update_health_bar(container: Node3D, hp: float, max_hp: float) -> void:
 	var fq: QuadMesh = fill.mesh as QuadMesh
 	if fq == null:
 		return
-	fq.size = Vector2(ratio * 1.0, 0.1)
-	fill.position.x = -0.5 + ratio * 0.5
+	fq.size = Vector2(ratio * 1.3, 0.14)
+	fill.position.x = -0.65 + ratio * 0.65
 	var fm: StandardMaterial3D = fill.material_override as StandardMaterial3D
 	if fm != null:
 		if ratio > 0.6:
@@ -973,6 +1005,9 @@ func _update_health_bar(container: Node3D, hp: float, max_hp: float) -> void:
 			fm.albedo_color = Color.YELLOW
 		else:
 			fm.albedo_color = Color.RED
+	var lbl := container.get_node_or_null("HpLabel") as Label3D
+	if lbl != null:
+		lbl.text = "%d/%d" % [int(round(hp)), int(round(max_hp))]
 
 ## Met à jour les barres de vie de TOUTES les unités locales (online + offline).
 func _update_all_local_health_bars() -> void:
@@ -1059,6 +1094,8 @@ func _apply_unit_damage(unit_index: int, amount: int) -> void:
 	var unit := units[unit_index]
 	if unit.has_method("take_damage"):
 		unit.call("take_damage", amount)
+		# Côté défenseur : nombre de dégâts rouge visible au-dessus de l'unité touchée.
+		show_damage_float(unit.global_position, amount)
 
 ## Demande d'appliquer des dégâts sur un bâtiment appartenant à un autre joueur.
 func request_building_damage(owner_peer: int, cell: Vector2i, amount: int) -> void:
@@ -1564,6 +1601,12 @@ func show_float_text(world_pos: Vector3, text: String, color: Color) -> void:
 	var ft: FloatingText = FLOAT_TEXT_SCENE.new()
 	_float_root.add_child(ft)
 	ft.start(world_pos, text, color)
+
+## Affiche un nombre de DÉGÂTS « -X » en rouge au-dessus d'une unité, pour qu'on
+## voie clairement qu'elle perd de la vie. Appelé des deux côtés (attaquant ET
+## défenseur) pour que l'info soit visible partout.
+func show_damage_float(world_pos: Vector3, amount: int) -> void:
+	show_float_text(world_pos + Vector3(0, 0.4, 0), "-%d" % amount, Color(1.0, 0.25, 0.25))
 
 func _setup_hud() -> void:
 	var layer := CanvasLayer.new()

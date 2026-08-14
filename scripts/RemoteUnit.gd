@@ -20,9 +20,11 @@ func _ready() -> void:
 
 ## Reçoit des dégâts d'un attaquant local. Relaie au propriétaire réel, qui
 ## applique les dégâts sur sa propre unité et diffuse l'état (via la synchro).
+## Affiche aussi un nombre « -X » chez l'ATTAQUANT pour confirmer les dégâts.
 func take_damage(amount: int) -> void:
 	if relay != null and is_instance_valid(relay):
 		relay.request_unit_damage(owner_peer, unit_index, amount)
+		relay.call("show_damage_float", global_position, amount)
 
 ## Position courante (utile aux attaquants pour le suivi de cible).
 func current_pos() -> Vector3:
