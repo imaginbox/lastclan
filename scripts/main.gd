@@ -897,6 +897,12 @@ func _update_remote_units(owner_id: int, states: Array) -> void:
 		rep.global_position = st[0]
 		var hpv: float = st[1]
 		var maxh: float = st[2]
+		# Unité morte (hp ≤ 0) : on la masque entièrement (corps + barre) pour
+		# qu'elle disparaisse dès la mise à jour, sans attendre la prochaine synchro.
+		if hpv <= 0.0:
+			rep.visible = false
+			continue
+		rep.visible = true
 		var hb := rep.get_node_or_null("HealthBar") as Node3D
 		if hb != null:
 			_update_health_bar(hb, hpv, maxh, rep.last_damage_ms)
@@ -998,6 +1004,15 @@ func _make_health_bar_node() -> Node3D:
 ## Met aussi à jour le NOMBRE de PV (« 34/100 ») qui descend quand l'unité perd
 ## de la vie, visible au-dessus de la barre.
 func _update_health_bar(container: Node3D, hp: float, max_hp: float, last_damage_ms: int = -100000) -> void:
+	# État mort : on masque TOUJOURS la barre/nombre de PV, même si l'unité a été
+	# touchée il y a un instant — une unité à 0 PV ne doit plus afficher de vie.
+	if hp <= 0.0:
+		container.visible = false
+		# Met quand même le libellé à 0 pour ne rien laisser de "fantôme" cohérent.
+		var dlbl := container.get_node_or_null("HpLabel") as Label3D
+		if dlbl != null:
+			dlbl.text = "0/%d" % int(round(max_hp))
+		return
 	var ratio := clampf(hp / max_hp if max_hp > 0 else 0.0, 0.0, 1.0)
 	var recently_hit := Time.get_ticks_msec() - last_damage_ms < HEALTH_BAR_VISIBLE_MS
 	container.visible = ratio < 0.99 and recently_hit
@@ -1484,6 +1499,10 @@ func _update_selection_feedback() -> void:
 	_refresh_order_button()
 
 func _select_building(b: Building) -> void:
+	# On ne PEUT PAS sélectionner/manipuler les bâtiments des autres joueurs :
+	# les copies distantes sont de simples visuels + obstacles (non sélectionnables).
+	if b.remote:
+		return
 	_selected_building = b
 	b.set_selected(true)
 	_building_panel.visible = true
