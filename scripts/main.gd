@@ -141,8 +141,14 @@ const REMOTE_UNIT_COLORS: Array[Color] = [
 
 ## --- UI : menu construction & panneau bâtiment ---
 var _build_buttons := {}   # Building.Type -> Button
-var _build_hb: HBoxContainer = null
-var _build_panel: PanelContainer = null
+## Dock central « Construire » (CoC) : un bouton qui se déplie en grille.
+var _build_main_btn: Button = null
+var _build_menu: PanelContainer = null
+var _build_menu_grid: GridContainer = null
+## Menu sommet « ☰ » : un bouton qui se déplie en actions du royaume.
+var _top_menu_btn: Button = null
+var _top_menu_panel: PanelContainer = null
+var clan_entry_btn: Button = null
 var _building_panel: PanelContainer = null
 var _building_title: Label = null
 var _building_info: Label = null
@@ -1901,7 +1907,19 @@ func _refresh_responsive() -> void:
 		_apply_orientation_layout()
 
 func _apply_orientation_layout() -> void:
-	pass  # La barre ressources et le dock utilisent déjà des ancres Top-wide/sous.
+	# Le dock de construction central et le bouton ☰ s'adaptent à l'orientation.
+	if _is_portrait:
+		# Portrait : grille de construction sur 2 colonnes pour rester dans l'écran.
+		if _build_menu_grid != null:
+			_build_menu_grid.columns = 2
+		if _top_menu_panel != null:
+			_top_menu_panel.offset_left = -300.0 * _ui_scale
+	else:
+		# Paysage : grille sur 3 colonnes.
+		if _build_menu_grid != null:
+			_build_menu_grid.columns = 3
+		if _top_menu_panel != null:
+			_top_menu_panel.offset_left = -320.0 * _ui_scale
 
 
 func _on_resources_changed(gold: int, wood: int, stone: int, food: int) -> void:
@@ -2007,51 +2025,107 @@ func _setup_clan_button() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 41
 	add_child(layer)
-	var btn := Button.new()
-	btn.name = "ClanButton"
-	btn.text = "🛡️ Clan"
-	btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	btn.offset_left = -150.0 * _ui_scale
-	btn.offset_top = 12.0 * _ui_scale
-	btn.offset_right = -12.0 * _ui_scale
-	btn.offset_bottom = (12.0 + 44.0 * _ui_scale) * _ui_scale
-	btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
-	_stylize_coc_button(btn)
-	btn.pressed.connect(_toggle_clan_panel)
-	layer.add_child(btn)
-	# Bouton Paramètres sous le bouton Clan (top-right).
-	var settings := Button.new()
-	settings.name = "SettingsButton"
-	settings.text = "⚙️"
-	settings.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	settings.offset_left = -150.0 * _ui_scale
-	settings.offset_top = (12.0 + 44.0 * _ui_scale) * _ui_scale + 6.0 * _ui_scale
-	settings.offset_right = -12.0 * _ui_scale
-	settings.offset_bottom = (12.0 + 44.0 * _ui_scale) * _ui_scale + 50.0 * _ui_scale
-	settings.add_theme_font_size_override("font_size", int(20 * _ui_scale))
-	_stylize_coc_button(settings)
-	settings.pressed.connect(_notify.bind("Paramètres (bientôt)"))
-	layer.add_child(settings)
-	# Le panneau s'ouvre au-dessus/beside du bouton.
+	# ===== Bouton hub « ☰ » (sommet droite) : se déplie en actions du royaume.
+	_top_menu_btn = Button.new()
+	_top_menu_btn.name = "MenuButton"
+	_top_menu_btn.text = "☰"
+	_top_menu_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_top_menu_btn.offset_left = -60.0 * _ui_scale
+	_top_menu_btn.offset_top = 12.0 * _ui_scale
+	_top_menu_btn.offset_right = -12.0 * _ui_scale
+	_top_menu_btn.offset_bottom = (12.0 + 46.0 * _ui_scale) * _ui_scale
+	_top_menu_btn.add_theme_font_size_override("font_size", int(22 * _ui_scale))
+	_stylize_coc_button(_top_menu_btn)
+	_top_menu_btn.pressed.connect(_toggle_top_menu)
+	layer.add_child(_top_menu_btn)
+	# ===== Panneau qui se déplie : liste verticale d'actions du royaume.
+	_top_menu_panel = PanelContainer.new()
+	_top_menu_panel.name = "TopMenu"
+	_top_menu_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_top_menu_panel.offset_left = -320.0 * _ui_scale
+	_top_menu_panel.offset_top = 64.0 * _ui_scale
+	_top_menu_panel.offset_right = -12.0 * _ui_scale
+	_top_menu_panel.grow_vertical = Control.GROW_DIRECTION_END
+	_top_menu_panel.visible = false
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.1, 0.12, 0.16, 0.96)
+	bg.corner_radius_top_left = 12
+	bg.corner_radius_top_right = 12
+	bg.corner_radius_bottom_left = 12
+	bg.corner_radius_bottom_right = 12
+	bg.border_color = Color(0.6, 0.7, 0.9, 0.45)
+	bg.set_border_width_all(2)
+	bg.content_margin_left = 10
+	bg.content_margin_right = 10
+	bg.content_margin_top = 8
+	bg.content_margin_bottom = 8
+	_top_menu_panel.add_theme_stylebox_override("panel", bg)
+	layer.add_child(_top_menu_panel)
+	var mv := MarginContainer.new()
+	for m in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
+		mv.add_theme_constant_override(m, 6)
+	_top_menu_panel.add_child(mv)
+	var mvb := VBoxContainer.new()
+	mvb.add_theme_constant_override("separation", 8)
+	mv.add_child(mvb)
+	# Entrées du menu (chaque un bouton dépliable ou action).
+	var _realm_btn := _make_top_menu_item(mvb, "🌱 Royaume", _notify.bind("Jauge du royaume (bientôt détaillée)"))
+	clan_entry_btn = _make_top_menu_item(mvb, "🛡️ Clan", _toggle_clan_panel)
+	var _settings_btn := _make_top_menu_item(mvb, "⚙️ Paramètres", _notify.bind("Paramètres (bientôt)"))
+	_make_top_menu_item(mvb, "🌍 Langue", _toggle_language_popup)
+	var close_btn := Button.new()
+	close_btn.text = "Fermer"
+	close_btn.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	close_btn.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+	_stylize_coc_button(close_btn)
+	close_btn.pressed.connect(_toggle_top_menu)
+	mvb.add_child(close_btn)
+	# Le panneau Clan réutilise l'ancien emplacement.
 	_clan_panel = PanelContainer.new()
 	_clan_panel.name = "ClanPanel"
 	_clan_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_clan_panel.offset_left = -340.0 * _ui_scale
-	_clan_panel.offset_top = 60.0 * _ui_scale
+	_clan_panel.offset_top = 64.0 * _ui_scale
 	_clan_panel.offset_right = -12.0 * _ui_scale
-	_clan_panel.offset_bottom = 60.0 * _ui_scale + 320.0 * _ui_scale
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.88)
-	bg.corner_radius_top_left = 10
-	bg.corner_radius_top_right = 10
-	bg.corner_radius_bottom_left = 10
-	bg.corner_radius_bottom_right = 10
-	bg.border_color = Color(0.5, 0.7, 1.0, 0.6)
-	bg.set_border_width_all(2)
-	_clan_panel.add_theme_stylebox_override("panel", bg)
+	_clan_panel.offset_bottom = 64.0 * _ui_scale + 320.0 * _ui_scale
+	var cbg := StyleBoxFlat.new()
+	cbg.bg_color = Color(0, 0, 0, 0.88)
+	cbg.corner_radius_top_left = 10
+	cbg.corner_radius_top_right = 10
+	cbg.corner_radius_bottom_left = 10
+	cbg.corner_radius_bottom_right = 10
+	cbg.border_color = Color(0.5, 0.7, 1.0, 0.6)
+	cbg.set_border_width_all(2)
+	_clan_panel.add_theme_stylebox_override("panel", cbg)
 	_clan_panel.visible = false
 	layer.add_child(_clan_panel)
 	_build_clan_panel_content()
+
+## Crée une entrée de menu supérieur (bouton pleine largeur, style CoC).
+func _make_top_menu_item(parent: Container, text: String, handler: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(0, 46 * _ui_scale)
+	b.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_stylize_coc_button(b)
+	b.pressed.connect(handler)
+	parent.add_child(b)
+	return b
+
+## Ouvre/ferme le menu hub « ☰ ».
+func _toggle_top_menu() -> void:
+	if _top_menu_panel == null:
+		return
+	_top_menu_panel.visible = not _top_menu_panel.visible
+	# Ouvrir un sous-panel ferme l'autre.
+	if _top_menu_panel.visible:
+		_clan_panel.visible = false
+
+## Affiche une popup simple de sélection de langue (CoC).
+func _toggle_language_popup() -> void:
+	_toggle_top_menu()
+	_notify("Sélecteur de langue (via LobbyMenu) — bientôt en jeu")
 
 func _toggle_clan_panel() -> void:
 	if _clan_panel == null:
@@ -2325,38 +2399,70 @@ func _setup_build_ui() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 41
 	add_child(layer)
-	_build_panel = PanelContainer.new()
-	_build_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_build_panel.grow_horizontal = Control.GROW_DIRECTION_END
-	_build_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_build_panel.offset_left = 12.0
-	_build_panel.offset_top = -12.0
-	_build_panel.offset_bottom = -12.0
-	# Style CoC : barre sombre arrondie.
+	# ===== Bouton central « Construire » : se déplie en grille des bâtiments (CoC).
+	_build_main_btn = Button.new()
+	_build_main_btn.name = "BuildButton"
+	_build_main_btn.text = "🔨"
+	_build_main_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_build_main_btn.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_build_main_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_build_main_btn.offset_left = -70.0 * _ui_scale
+	_build_main_btn.offset_right = 70.0 * _ui_scale
+	_build_main_btn.offset_top = -110.0 * _ui_scale
+	_build_main_btn.offset_bottom = -30.0 * _ui_scale
+	_build_main_btn.add_theme_font_size_override("font_size", int(30 * _ui_scale))
+	_stylize_coc_button(_build_main_btn)
+	_build_main_btn.pressed.connect(_toggle_build_menu)
+	layer.add_child(_build_main_btn)
+	# Libellé sous l'icône.
+	var lbl := Label.new()
+	lbl.text = "Construire"
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	lbl.offset_top = 48.0 * _ui_scale
+	lbl.offset_bottom = 70.0 * _ui_scale
+	lbl.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+	lbl.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lbl.add_theme_constant_override("outline_size", 5)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_build_main_btn.add_child(lbl)
+	# ===== Menu dépliable : grille de tous les bâtiments.
+	_build_menu = PanelContainer.new()
+	_build_menu.name = "BuildMenu"
+	_build_menu.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_build_menu.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_build_menu.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_build_menu.offset_top = -330.0 * _ui_scale
+	_build_menu.offset_bottom = -120.0 * _ui_scale
+	_build_menu.offset_left = -200.0 * _ui_scale
+	_build_menu.offset_right = 200.0 * _ui_scale
+	_build_menu.visible = false
 	var fb := StyleBoxFlat.new()
-	fb.bg_color = Color(0.1, 0.12, 0.16, 0.9)
-	fb.corner_radius_top_left = 10
-	fb.corner_radius_top_right = 10
-	fb.corner_radius_bottom_left = 10
-	fb.corner_radius_bottom_right = 10
-	fb.border_color = Color(0.6, 0.7, 0.9, 0.35)
+	fb.bg_color = Color(0.1, 0.12, 0.16, 0.95)
+	fb.corner_radius_top_left = 14
+	fb.corner_radius_top_right = 14
+	fb.corner_radius_bottom_left = 14
+	fb.corner_radius_bottom_right = 14
+	fb.border_color = Color(0.6, 0.7, 0.9, 0.45)
 	fb.set_border_width_all(2)
-	fb.content_margin_left = 8
-	fb.content_margin_right = 8
-	fb.content_margin_top = 6
-	fb.content_margin_bottom = 6
-	_build_panel.add_theme_stylebox_override("panel", fb)
-	layer.add_child(_build_panel)
+	fb.content_margin_left = 12
+	fb.content_margin_right = 12
+	fb.content_margin_top = 10
+	fb.content_margin_bottom = 10
+	_build_menu.add_theme_stylebox_override("panel", fb)
+	layer.add_child(_build_menu)
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 4)
-	margin.add_theme_constant_override("margin_top", 3)
-	margin.add_theme_constant_override("margin_right", 4)
-	margin.add_theme_constant_override("margin_bottom", 3)
-	_build_panel.add_child(margin)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 4)
-	margin.add_child(hb)
-	_build_hb = hb
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	_build_menu.add_child(margin)
+	_build_menu_grid = GridContainer.new()
+	_build_menu_grid.columns = 3
+	_build_menu_grid.add_theme_constant_override("h_separation", 6)
+	_build_menu_grid.add_theme_constant_override("v_separation", 6)
+	margin.add_child(_build_menu_grid)
 	# Tous les types de bâtiments ; le filtrage par niveau d'hôtel de ville
 	# est fait dans _refresh_build_buttons.
 	var all_types: Array[Building.Type] = [
@@ -2372,13 +2478,22 @@ func _setup_build_ui() -> void:
 		if cfg.has("cost_stone"):
 			tooltip += ", %d pierre" % cfg["cost_stone"]
 		btn.tooltip_text = tooltip
-		btn.custom_minimum_size = Vector2(120 * _ui_scale, 56 * _ui_scale)
-		btn.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+		btn.custom_minimum_size = Vector2(118 * _ui_scale, 56 * _ui_scale)
+		btn.add_theme_font_size_override("font_size", int(14 * _ui_scale))
 		_stylize_coc_button(btn)
 		btn.pressed.connect(_on_build_button_pressed.bind(t))
-		hb.add_child(btn)
+		_build_menu_grid.add_child(btn)
 		_build_buttons[t] = btn
 	_refresh_build_buttons()
+
+## Ouvre/ferme le menu dépliable de construction (CoC).
+func _toggle_build_menu() -> void:
+	if _build_menu == null:
+		return
+	_build_menu.visible = not _build_menu.visible
+	if not _build_menu.visible:
+		# On referme : on garde le mode placement actif s'il y en a un.
+		pass
 
 ## Applique le style « bouton CoC » (arrondi, bordure claire, fond foncé).
 func _stylize_coc_button(b: Button) -> void:
@@ -2429,6 +2544,9 @@ func _on_build_button_pressed(t: Building.Type) -> void:
 	_moving_building = null
 	_deselect_all()
 	_highlight_build_buttons()
+	# Un type choisi : on referme le menu dépliable (CoC).
+	if _build_menu != null:
+		_build_menu.visible = false
 
 func _highlight_build_buttons() -> void:
 	for t in _build_buttons:
