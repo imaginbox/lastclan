@@ -31,6 +31,21 @@ jobs:
           use-dotnet: false
           include-templates: true
 
+      # CACHE D'IMPORT : le projet pèse ~200 Mo d'assets. Le cache est clé par
+      # les fichiers de RESSOURCES SEULEMENT (pas les .gd, qui changent souvent) :
+      # si un push ne modifie que des scripts, on réutilise l'import déjà fait et
+      # on ne retraite pas 200 Mo -> build beaucoup plus rapide. On inclut aussi
+      # la version de Godot (via project.godot config_version) par prudence.
+      - name: Cache Godot import (.godot)
+        uses: actions/cache@v4
+        with:
+          path: |
+            .godot/
+            ~/.local/share/godot/
+          key: godot-import-${{ runner.os }}-${{ hashFiles('project.godot', 'export_presets.cfg', 'assets/**', 'scenes/**', 'shaders/**', 'addons/**') }}
+          restore-keys: |
+            godot-import-${{ runner.os }}-
+
       # Importe les ressources (crée le cache .godot indispensable à l'export).
       - name: Import Godot resources
         run: |

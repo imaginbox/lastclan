@@ -85,6 +85,7 @@ var _hud_pop_label: Label = null
 var _hud_workers_label: Label = null
 var _hud_soldiers_label: Label = null
 var _hud_room_label: Label = null
+var _hud_hover_label: Label = null
 
 ## --- Nombres de récolte flottants (HUD cartoon) ---
 var _float_root: CanvasLayer = null
@@ -1355,7 +1356,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		if _ghost_active():
 			_update_ghost(event.position)
-		elif _dragging:
+		else:
+			_update_hover(event.position)
+		if _dragging:
 			if not _drag_selecting and event.position.distance_to(_press_pos) > DRAG_SELECT_THRESHOLD:
 				_drag_selecting = true
 				_overlay_rect.visible = true
@@ -1669,6 +1672,58 @@ func _ancestor_in_group(node: Node, group: String) -> Node:
 		cur = cur.get_parent()
 	return null
 
+## Met à jour le label de survol : si le curseur est sur un personnage ou un
+## bâtiment, on affiche le nom du joueur qui le possède. Sinon, on le masque.
+func _update_hover(screen_pos: Vector2) -> void:
+	if _hud_hover_label == null:
+		return
+	var hit := _raycast(screen_pos)
+	var name_text := ""
+	if not hit.is_empty():
+		var node: Node = hit["collider"] as Node
+		var unit := _unit_at(node)
+		if unit != null:
+			name_text = _owner_name(unit)
+		else:
+			# Unité distante ou bâtiment : l'owner est stocké en meta / propriété.
+			var owner := _owner_of(node)
+			if owner != -1:
+				name_text = _owner_name_id(owner)
+	if name_text.is_empty():
+		_hud_hover_label.visible = false
+	else:
+		_hud_hover_label.text = "👑 %s" % name_text
+		_hud_hover_label.visible = true
+
+## Nom du joueur propriétaire d'UNE UNITÉ LOCALE (Villager/Soldier) : nous.
+func _owner_name(obj: Node) -> String:
+	return _owner_name_id(Lobby.my_id)
+
+## Remonte la hiérarchie pour trouver le peer propriétaire (RemoteUnit.owner_peer
+## ou Building.owner_peer, ou meta "owner"). -1 si aucun joueur propriétaire clair.
+func _owner_of(node: Node) -> int:
+	var cur: Node = node
+	while cur != null:
+		if cur is RemoteUnit and cur.get("owner_peer") != null:
+			return int(cur.get("owner_peer"))
+		if cur is Building and cur.get("owner_peer") != null:
+			return int(cur.get("owner_peer"))
+		if cur.has_meta("owner"):
+			return int(cur.get_meta("owner"))
+		cur = cur.get_parent()
+	return -1
+
+## Résout le peer_id en nom de joueur via le roster de Lobby.
+func _owner_name_id(peer_id: int) -> String:
+	if peer_id <= 0:
+		return ""
+	if peer_id == Lobby.my_id:
+		return str(Lobby.player_info.get("name", "Moi"))
+	if Lobby.players.has(peer_id):
+		var info: Dictionary = Lobby.players[peer_id]
+		return str(info.get("name", "Joueur %d" % peer_id))
+	return "Joueur %d" % peer_id
+
 # ============================================================ UI : SURVOL & HUD
 
 func _setup_selection_overlay() -> void:
@@ -1743,12 +1798,20 @@ func _setup_hud() -> void:
 	_hud_soldiers_label = Label.new()
 	_hud_room_label = Label.new()
 	_hud_room_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	# Label « survol » : affiche le nom du joueur propriétaire d'un personnage ou
+	# bâtiment quand on passe la souris dessus. Vide par défaut (masqué).
+	_hud_hover_label = Label.new()
+	_hud_hover_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+	_hud_hover_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	_hud_hover_label.add_theme_constant_override("outline_size", 6)
 	for l in [_hud_gold_label, _hud_wood_label, _hud_stone_label, _hud_food_label,
-			_hud_pop_label, _hud_workers_label, _hud_soldiers_label, _hud_room_label]:
+			_hud_pop_label, _hud_workers_label, _hud_soldiers_label, _hud_room_label,
+			_hud_hover_label]:
 		l.add_theme_font_size_override("font_size", fs)
 		# Couleur claire pour la lisibilité sur fond sombre
 		l.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
 		vb.add_child(l)
+	_hud_hover_label.visible = false
 	var room_code := Lobby.room_id if Lobby.has_base and Lobby.is_online else "hors ligne"
 	_hud_room_label.text = "Partie : %s" % room_code
 	var rm := get_node("/root/ResourceManager")
