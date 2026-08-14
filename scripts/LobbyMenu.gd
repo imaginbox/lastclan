@@ -57,7 +57,10 @@ func _ready() -> void:
 ## Cela permet qu'un lien navigateur fasse rejoindre n'importe quel joueur.
 func _auto_join_from_entry() -> void:
 	var is_server: bool = OS.get_cmdline_user_args().has("--server")
-	var is_host: bool = OS.get_cmdline_user_args().has("--host")
+	# --host (ENet) ou --ws-host (WebSocket, serveur VPS) ⇒ ce process EST le serveur
+	# et doit auto-lancer la partie dès que le réseau est prêt (pas rester au lobby).
+	var is_host: bool = OS.get_cmdline_user_args().has("--host") \
+		or OS.get_cmdline_user_args().has("--ws-host")
 	var is_client_arg: bool = false
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--connect="):
