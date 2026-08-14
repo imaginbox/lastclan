@@ -1,0 +1,2 @@
+# Godot : ignorer ce dossier — fichiers d'exploitation VPS (shell/markdown),
+# pas des ressources de jeu. Empêche les erreurs "No loader found for resource".
