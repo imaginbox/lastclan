@@ -4,7 +4,7 @@
       "name": "Royaume Alpha",
       "subtitle": "Serveur officiel — Saison 1 (auto-hébergé)",
       "transport": "ws",
-      "address": "wss://REMPLACE_PAR_TON_DOMAINE:7934",
+      "address": "wss://lastclan.imaginbox.fr:7934",
       "room": "royaume-alpha",
       "official": true
     },
@@ -12,7 +12,7 @@
       "name": "Royaume Beta",
       "subtitle": "Serveur officiel — Saison 2 (auto-hébergé)",
       "transport": "ws",
-      "address": "wss://REMPLACE_PAR_TON_DOMAINE:7934",
+      "address": "wss://lastclan.imaginbox.fr:7934",
       "room": "royaume-beta",
       "official": true
     },
@@ -20,7 +20,7 @@
       "name": "Royaume Web",
       "subtitle": "Navigateur / mobile — serveur VPS",
       "transport": "ws",
-      "address": "wss://REMPLACE_PAR_TON_DOMAINE:7934",
+      "address": "wss://lastclan.imaginbox.fr:7934",
       "room": "royaume-web",
       "official": true
     }

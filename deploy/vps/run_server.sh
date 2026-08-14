@@ -3,7 +3,7 @@
 #  run_server.sh — Lance manuellement le serveur The Last Clan (sans systemd).
 #
 #  Usage :  sudo bash run_server.sh <DOMAINE> [PORT]
-#  Exemple: sudo bash run_server.sh lastclan.ovh 7934
+#  Exemple: sudo bash run_server.sh lastclan.imaginbox.fr 7934
 #
 #  Sert au débogage avant d'activer le service systemd. Nécessite :
 #    - /srv/lastclan        (dépôt Git cloné)

@@ -3,7 +3,7 @@
 #  setup_server.sh — Installe The Last Clan (serveur WebSocket VPS) sur Linux.
 #
 #  Usage (en root) :  sudo bash setup_server.sh <DOMAINE>
-#  Exemple         :  sudo bash setup_server.sh lastclan.ovh
+#  Exemple         :  sudo bash setup_server.sh lastclan.imaginbox.fr
 #
 #  Ce qui est fait :
 #   1. apt update/upgrade + paquets de base (git, curl)
@@ -19,7 +19,7 @@ set -euo pipefail
 
 DOMAIN="${1:-}"
 if [ -z "$DOMAIN" ]; then
-  echo "❌ Usage : sudo bash setup_server.sh <DOMAINE>   (ex: lastclan.ovh)"
+  echo "❌ Usage : sudo bash setup_server.sh <DOMAINE>   (ex: lastclan.imaginbox.fr)"
   exit 1
 fi
 

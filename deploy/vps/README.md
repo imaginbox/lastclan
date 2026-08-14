@@ -17,7 +17,7 @@ Ton FAI n'a plus à joindre le relais → **le routage instable n'existe plus**.
 | Élément | Détail |
 |---------|--------|
 | **VPS** | Linux (Debian/Ubuntu), min. 2 vCPU / 4 Go RAM, IP publique. ~3-6 €/mois |
-| **Domaine (recommandé)** | ex. `lastclan.ovh` pointant (A record) vers l'IP du VPS — nécessaire pour le certificat TLS gratuit et un `wss://mondomaine` propre |
+| **Domaine (recommandé)** | ex. `lastclan.imaginbox.fr` pointant (A record) vers l'IP du VPS — nécessaire pour le certificat TLS gratuit et un `wss://mondomaine` propre |
 | **Certificat TLS** | Gratuit via **Certbot (Let's Encrypt)** — obligatoire pour les navigateurs (contenu mixte bloqué sinon) |
 | **Godot server** | Binaire Linux `Godot_v4.7.1-stable_linux.x86_64` (ou l'import/export "Linux Server") |
 
@@ -33,7 +33,7 @@ Ton FAI n'a plus à joindre le relais → **le routage instable n'existe plus**.
 
 ```bash
 # Sur le VPS :
-sudo bash setup_server.sh lastclan.ovh
+sudo bash setup_server.sh lastclan.imaginbox.fr
 ```
 
 **Ce que fait le script :**
@@ -57,8 +57,8 @@ Le serveur est lancé par systemd avec :
 ```
 Godot_v4.7.1 --headless --path /srv/lastclan -- --ws-host \
    --port=7934 --room=royaume-web \
-   --tls-cert=/etc/letsencrypt/live/lastclan.ovh/fullchain.pem \
-   --tls-key=/etc/letsencrypt/live/lastclan.ovh/privkey.pem
+   --tls-cert=/etc/letsencrypt/live/lastclan.imaginbox.fr/fullchain.pem \
+   --tls-key=/etc/letsencrypt/live/lastclan.imaginbox.fr/privkey.pem
 ```
 
 > `--ws-host` : le lobby autoload `Lobby.gd` détecte ce flag, démarre un vrai serveur
@@ -75,7 +75,7 @@ Dans `res://servers.json`, le royaume pointe vers ton VPS :
   "name": "Royaume Web",
   "subtitle": "Serveur officiel (VPS)",
   "transport": "ws",
-  "address": "wss://lastclan.ovh:7934",
+  "address": "wss://lastclan.imaginbox.fr:7934",
   "room": "royaume-web",
   "official": true
 }
@@ -106,7 +106,7 @@ sudo journalctl -u lastclan-server -f   # voir les logs
 Depuis ta machine (et depuis le navigateur déployé) :
 ```bash
 # TCP + TLS ouverts ?
-curl -sS -o /dev/null -w "%{http_code}\n" "https://lastclan.ovh:7934"
+curl -sS -o /dev/null -w "%{http_code}\n" "https://lastclan.imaginbox.fr:7934"
 # → une réponse TLS/HTTP (même code d'erreur) prouve que le port est ouvert et joignable
 
 # Test manuel du serveur localement (depuis le VPS, sans TLS) :
