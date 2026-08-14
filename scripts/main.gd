@@ -734,7 +734,7 @@ func _place_building(b: Building, anchor: Vector2i) -> void:
 	var center := anchor + Vector2i(int(f / 2.0), int(f / 2.0))
 	b.global_position = _cell_center(center)
 	b.unit_requested.connect(_on_unit_requested, CONNECT_REFERENCE_COUNTED)
-	b.building_changed.connect(_refresh_building_panel)
+	b.building_changed.connect(_refresh_building_panel, CONNECT_REFERENCE_COUNTED)
 	b.building_changed.connect(_broadcast_building_upgrade.bind(b), CONNECT_REFERENCE_COUNTED)
 	b.removed.connect(_on_building_removed, CONNECT_REFERENCE_COUNTED)
 	_refresh_population_cap()
@@ -746,8 +746,13 @@ func _remove_building_from_grid(b: Building) -> void:
 	for c in _footprint_cells(b.grid_cell, f):
 		if _occupancy.get(c) == b:
 			_occupancy.erase(c)
-	b.unit_requested.disconnect(_on_unit_requested)
-	b.building_changed.disconnect(_refresh_building_panel)
+	# Sécurité : si le bâtiment a déjà été libéré (queue_free), Godot a auto-déconnecté
+	# ses signaux (CONNECT_REFERENCE_COUNTED). Un disconnect() explicite échouerait
+	# avec "Attempt to disconnect a nonexistent connection" → on garde avec is_connected().
+	if b.unit_requested.is_connected(_on_unit_requested):
+		b.unit_requested.disconnect(_on_unit_requested)
+	if b.building_changed.is_connected(_refresh_building_panel):
+		b.building_changed.disconnect(_refresh_building_panel)
 
 func _on_unit_requested(unit_type: int) -> void:
 	var producer: Building = _selected_building
