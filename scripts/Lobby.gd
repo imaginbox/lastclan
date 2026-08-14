@@ -405,23 +405,20 @@ func _on_connected_fail() -> void:
 	_stop_connect_timeout()
 	var detail := _diag_peer()
 	_remove_peer()
-	# Serveur dédié : ne JAMAIS passer hors ligne — on retente indéfiniment.
-	if is_dedicated_server:
-		_retry_count = 0
-		print("[SERVEUR] échec connexion au relais%s — nouvelle tentative dans 3s…" % detail)
-		connection_status.emit("Serveur : échec de connexion au relais%s — nouvelle tentative dans 3s…" % detail)
-		await get_tree().create_timer(3.0).timeout
-		join_room(room_id)
-		return
-	if _retry_count < MAX_RETRIES:
-		_retry_count += 1
-		connection_status.emit("Échec de connexion%s — nouvel essai…" % detail)
-		await get_tree().create_timer(2.0).timeout
-		join_room(room_id)
-	else:
-		_retry_count = 0
-		connection_status.emit("Échec de connexion au relais%s — hors ligne" % detail)
-		_go_offline()
+	# Le relais Ziva est en ligne, mais notre réseau local instable peut faire
+	# échouer UNE tentative (WebSocket fermée avant le handshake). On ne déclare
+	# JAMAIS « hors ligne » : on retente indéfiniment avec un délai croissant
+	# plafonné, jusqu'à ce que la connexion s'établisse.
+	var delay := _retry_delay()
+	connection_status.emit("Connexion instable%s — nouvel essai dans %.0fs…" % [detail, delay])
+	await get_tree().create_timer(delay).timeout
+	join_room(room_id)
+
+## Délai d'attente avant le prochain essai de reconnexion : croissant (2s, 3s,
+## 4s…) puis plafonné à 6s pour ne pas marteler le relais en continu.
+func _retry_delay() -> float:
+	_retry_count += 1
+	return clampf(1.0 + float(_retry_count), 2.0, 6.0)
 
 ## Démarre un compte à rebours : si au bout de CONNECT_TIMEOUT la connexion
 ## n'est toujours pas établie, on la déclare en échec (le relais ne répond pas).
@@ -442,16 +439,13 @@ func _on_connect_timeout() -> void:
 		var detail := ""
 		if peer != null:
 			detail = " (état relais %d)" % peer.get_connection_status()
-		# Serveur dédié : le relais ne répond pas → on réessaie en continu, jamais hors ligne.
-		if is_dedicated_server:
-			print("[SERVEUR] relais ne répond pas%s — nouvelle tentative dans 3s…" % detail)
-			connection_status.emit("Serveur : le relais ne répond pas%s — nouvelle tentative dans 3s…" % detail)
-			_remove_peer()
-			await get_tree().create_timer(3.0).timeout
-			join_room(room_id)
-			return
-		connection_status.emit("Le relais ne répond pas%s — hors ligne" % detail)
+		# Le relais ne répond pas (réseau instable) : on retente indéfiniment avec
+		# un délai croissant plafonné, jamais « hors ligne ».
 		_remove_peer()
+		var delay := _retry_delay()
+		connection_status.emit("Le relais ne répond pas%s — nouvel essai dans %.0fs…" % [detail, delay])
+		await get_tree().create_timer(delay).timeout
+		join_room(room_id)
 
 ## Extrait le détail du relais (état / code de fermeture) pour le diagnostic.
 ## Ouvre un WebSocket brut sur la même URL que le peer multijoueur pour
