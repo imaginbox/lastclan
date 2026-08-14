@@ -1,0 +1,21 @@
+[Unit]
+# The Last Clan — serveur WebSocket sécurisé (wss://) pour itch.io / navigateur / mobile.
+# Sans Ziva : les joueurs du navigateur se connectent directement en wss à ce VPS.
+Description=The Last Clan WebSocket (itch.io) Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/the-last-clan
+# Remplace MON-DOMAINE par ton domaine Let's Encrypt. Port par défaut : 7938.
+ExecStart=/usr/local/bin/godot --headless --path /opt/the-last-clan \
+  -- --ws-host --port=7938 \
+  --tls-cert=/etc/letsencrypt/live/MON-DOMAINE/fullchain.pem \
+  --tls-key=/etc/letsencrypt/live/MON-DOMAINE/privkey.pem
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+# The Last Clan — toutes les royautés (saisons) en parallèle, 24/24.
+# Délègue le lancement au script run_kingdoms.sh qui démarre chaque royaume
+# sur son port + room (ENet Alpha 7934, ENet Beta 7935, WSS Web 7938).
+Description=The Last Clan — Royaumes (serveurs multijoueur)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/the-last-clan
+ExecStart=/opt/the-last-clan/deploy/run_kingdoms.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

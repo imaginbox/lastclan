@@ -1,0 +1,22 @@
+[Unit]
+# The Last Clan — serveur de jeu dédié (auto-hébergé, sans Ziva)
+# Fait tourner un vrai Godot headless qui écoute en ENet (UDP) pour accueillir
+# les joueurs 24/24. Redémarre automatiquement en cas de crash.
+Description=The Last Clan Dedicated Game Server
+After=network.target
+
+[Service]
+Type=simple
+# Remplace /opt/the-last-clan par le chemin réel du projet sur le VPS.
+WorkingDirectory=/opt/the-last-clan
+ExecStart=/usr/local/bin/godot --headless --path /opt/the-last-clan -- --host --port=7934
+# Relance le serveur sur crash, reboot, ou arrêt anormal.
+Restart=always
+RestartSec=3
+# Limite : jamais de fenêtre (headless) — léger et stable.
+Environment=XDG_RUNTIME_DIR=/run/user/0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

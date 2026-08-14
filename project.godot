@@ -41,6 +41,10 @@ ui_accept={
 ]
 }
 
+[input_devices]
+
+pointing/emulate_mouse_from_touch="true"
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
@@ -53,6 +57,10 @@ anti_aliasing/quality/use_fxaa="true"
 [run]
 
 main_scene="res://scenes/LobbyMenu.tscn"
+
+[threading]
+
+worker_pool/max_threads=4
 
 [ziva]
 

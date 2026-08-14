@@ -25,7 +25,7 @@ const GATHER_TIME: float = 2.0
 # Distance de portée : assez grande pour que le paysan atteigne une ressource
 # malgré sa collision (arbre : boîte 1.8 → bord à 0.9 + rayon 0.35 = ~1.25).
 # Anciennement 1.2, trop juste pour les arbres : le paysan restait bloqué au
-# bord sans jamais déclencher la récolte.
+# de bord sans jamais déclencher la récolte.
 # Distance de portée pour un déplacement libre (clic droit sur le sol) :
 # précise, on s'arrête exactement sur le point.
 const REACH_DISTANCE: float = 0.15
@@ -43,14 +43,24 @@ const ATTACK_COOLDOWN: float = 1.0
 # PATHFINDING RÉACTIF : On réduit le timeout de blocage à 2.0s pour que le paysan
 # cherche une autre route beaucoup plus vite s'il est gêné par un arbre.
 const STUCK_TIMEOUT: float = 2.0
+# Inventaire de transport : le paysan accumule jusqu'à MAX_CARRIED unités
+# avant de rentrer livrer. Évite les allers-retours trop fréquents (boucle)
+# ET l'immobilisation trop longue (figé pendant toute la récolte).
+const MAX_CARRIED: int = 15
 
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
 ## Référence à un AnimationPlayer si présent (optionnel, pour tes modèles).
 @onready var anim_player: AnimationPlayer = null
 
+## Santé de l'unité : permet d'être endommagé par d'autres joueurs (combat PvP).
+var hp: int = 60
+var max_hp: int = 60
+signal died
+
 var _state: State = State.IDLE
 var _assigned_resource: ResourceNode = null   # ressource qu'il doit exploiter (boucle)
 var _carried_type: ResourceNode.ResourceType = ResourceNode.ResourceType.GOLD
+var _carried_amount: int = 0   # unités transportées avant livraison à l'hôtel de ville
 var _gather_timer: float = 0.0
 var _assigned_attack: Node3D = null
 var _attack_cd: float = 0.0
@@ -178,6 +188,7 @@ func move_to_point(point: Vector3) -> void:
 func _begin_gather(resource_node: ResourceNode) -> void:
 	_assigned_resource = resource_node
 	_carried_type = resource_node.resource_type
+	_carried_amount = 0
 	_gather_timer = 0.0
 	# Le paysan vise le CENTRE de la ressource. Comme il traverse physiquement les
 	# obstacles (collision_mask = sol uniquement), il peut s'approcher directement
@@ -195,6 +206,9 @@ func _move_to_target(delta: float) -> void:
 	# sans progrès), on passe à la tâche suivante pour ne jamais rester à "courir
 	# sans rien faire". _stuck_check a déjà re-routé une fois la navigation.
 	if _stuck_check(delta):
+		# On vide la ressource courante pour ne pas la re-sélectionner
+		# et boucler indéfiniment sur une cible inaccessible.
+		_assigned_resource = null
 		_select_next_task()
 		return
 	# Arrivée basée sur la distance HORIZONTALE (plan XZ) : le terrain en gradins
@@ -235,21 +249,40 @@ func _gather(delta: float) -> void:
 			var amount := randi_range(1, 5)
 			var taken: int = _assigned_resource.harvest(amount)
 			if taken > 0:
-				_add_harvest_to_city(taken)
+				_carried_amount += taken
 				_carried_type = _assigned_resource.resource_type
 				_show_harvest_float(taken)
 		
-		# Si la ressource est épuisée suite à ce coup, on cherche immédiatement une
-		# remplaçante DU MÊME TYPE avant de décider de rentrer ou non.
-		if _assigned_resource == null or not _assigned_resource.has_left():
-			var replacement := _find_nearest_of_type(_carried_type)
-			if replacement != null:
-				_begin_gather(replacement)
-				return
+		# ALLER-RETOUR : dès que le paysan transporte MAINTENANT une charge complète
+		# (MAX_CARRIED), il rentre livrer à l'hôtel de ville, même si la ressource
+		# a encore du stock. L'économie n'est créditée qu'au DÉPÔT, pas à la récolte.
+		if _carried_amount >= MAX_CARRIED:
+			if _town_hall != null:
+				nav_agent.target_position = _town_hall.global_position
+				set_state(State.RETURNING)
+			else:
+				# Pas d'hôtel de ville : on livre la charge sur place pour ne rien perdre.
+				_deliver_city()
+			return
+		
+		# Charge pas encore pleine : on continue sur la même ressource si elle reste.
+		if _assigned_resource != null and _assigned_resource.has_left():
+			return
+		
+		# Ressource épuisée avant le chargement complet : on cherche une remplaçante
+		# DU MÊME TYPE pour finir la charge avant de rentrer.
+		var replacement := _find_nearest_of_type(_carried_type)
+		if replacement != null:
+			_begin_gather(replacement)
+			return
 
-		if _town_hall != null:
+		# Aucune ressource de ce type restante : on rentre livrer ce qu'on a (même
+		# partiel, pour ne jamais bloquer l'économie sur une charge inachevée).
+		if _carried_amount > 0 and _town_hall != null:
 			nav_agent.target_position = _town_hall.global_position
 			set_state(State.RETURNING)
+		elif _carried_amount > 0:
+			_deliver_city()
 		else:
 			_select_next_task()
 
@@ -260,23 +293,38 @@ func _return_to_townhall(delta: float) -> void:
 	# Filet anti-blocage : si le paysan n'arrive plus à l'hôtel de ville, on livre
 	# quand même (le dépôt touche l'économie) pour ne pas rester bloqué à courir.
 	if _stuck_check(delta):
-		resource_delivered.emit(_carried_type, 1)
-		_select_next_task()
+		_deliver_city()
 		return
 	# Dépôt effectué dès que le paysan est assez près de l'hôtel de ville.
 	# Distance très souple (4.5) pour éviter que les paysans ne courent contre les murs.
 	if _town_hall != null and _hdist(_town_hall.global_position) <= DELIVER_DISTANCE:
-		resource_delivered.emit(_carried_type, 1)
-		_select_next_task()
+		_deliver_city()
 		return
 	# Détection par contact avec l'hôtel de ville.
 	if get_slide_collision_count() > 0:
 		for i in get_slide_collision_count():
 			if get_slide_collision(i).get_collider() == _town_hall:
-				resource_delivered.emit(_carried_type, 1)
-				_select_next_task()
+				_deliver_city()
 				return
 	_step(delta)
+
+## Dépôt effectif de la charge à l'hôtel de ville : crédite l'économie de la ville
+## avec la quantité transportée, puis choisit la prochaine tâche (retour à la
+## récolte). C'est ici, et non à la récolte, que la ressource entre dans le stock.
+func _deliver_city() -> void:
+	if _carried_amount > 0:
+		match _carried_type:
+			ResourceNode.ResourceType.GOLD:
+				ResourceManager.add_gold(_carried_amount)
+			ResourceNode.ResourceType.WOOD:
+				ResourceManager.add_wood(_carried_amount)
+			ResourceNode.ResourceType.STONE:
+				ResourceManager.add_stone(_carried_amount)
+			ResourceNode.ResourceType.FOOD:
+				ResourceManager.add_food(_carried_amount)
+		resource_delivered.emit(_carried_type, _carried_amount)
+	_carried_amount = 0
+	_select_next_task()
 
 ## Choisit l'activité suivante (souvent après une livraison ou un épuisement).
 func _select_next_task() -> void:
@@ -330,20 +378,6 @@ func _resource_color(t: ResourceNode.ResourceType) -> Color:
 		ResourceNode.ResourceType.STONE: return Color(0.8, 0.82, 0.88) # pierre
 		ResourceNode.ResourceType.FOOD: return Color(0.9, 0.25, 0.25)  # nourri./rouge
 	return Color.WHITE
-
-## Ajoute la récolte à l'économie de la ville selon son type.
-func _add_harvest_to_city(taken: int) -> void:
-	if _assigned_resource == null:
-		return
-	match _assigned_resource.resource_type:
-		ResourceNode.ResourceType.GOLD:
-			ResourceManager.add_gold(taken)
-		ResourceNode.ResourceType.WOOD:
-			ResourceManager.add_wood(taken)
-		ResourceNode.ResourceType.STONE:
-			ResourceManager.add_stone(taken)
-		ResourceNode.ResourceType.FOOD:
-			ResourceManager.add_food(taken)
 
 ## Choix intelligent de la ressource suivante.
 ## Loi simple d'émergence : le paysan vise le type de ressource le plus rare dans
@@ -534,3 +568,14 @@ func _sel_mat() -> StandardMaterial3D:
 
 func _is_sel_material(mat: Material) -> bool:
 	return mat == _sel_material
+
+## --- Santé / Combat PvP ---
+## Reçoit des dégâts d'une unité adverse. Meurt quand la santé tombe à 0.
+func take_damage(amount: int) -> void:
+	hp -= amount
+	if hp <= 0:
+		die()
+
+func die() -> void:
+	died.emit()
+	queue_free()

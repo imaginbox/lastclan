@@ -10,6 +10,11 @@ extends Control
 
 const MAIN_SCENE := "res://scenes/Main.tscn"
 const ROOMS_CFG := "user://rooms.cfg"
+const SERVERS_JSON := "res://servers.json"
+
+## Liste des serveurs officiels (modèle « royaumes » à la Call of Dragons) :
+## chaque entrée = {"name", "subtitle", "transport", "address", "official"}.
+var _servers: Array[Dictionary] = []
 
 var _status_label: Label
 var _players_box: VBoxContainer
@@ -22,6 +27,7 @@ var _join_code_input: LineEdit
 var _recent_box: VBoxContainer
 var _invite_button: Button
 var _offline_button: Button
+var _servers_box: VBoxContainer
 
 var _recent_rooms: Array[String] = []
 
@@ -30,6 +36,7 @@ var _auto_launch: bool = false
 
 func _ready() -> void:
 	_load_recent_rooms()
+	_load_servers()
 	_build_ui()
 	# Signaux de l'autoload Lobby.
 	Lobby.player_connected.connect(_on_player_connected)
@@ -37,6 +44,7 @@ func _ready() -> void:
 	Lobby.connection_status.connect(_on_status)
 	Lobby.chat_received.connect(_on_chat)
 	Lobby.server_disconnected.connect(_on_server_disconnected)
+	Lobby.roster_changed.connect(_on_roster_changed)
 	_on_status("Prêt. Créez ou rejoignez une partie.")
 	_refresh_players()
 	_refresh_recent()
@@ -48,6 +56,18 @@ func _ready() -> void:
 ##  - ou l'argument de ligne de commande « --room=CODE » (desktop).
 ## Cela permet qu'un lien navigateur fasse rejoindre n'importe quel joueur.
 func _auto_join_from_entry() -> void:
+	var is_server: bool = OS.get_cmdline_user_args().has("--server")
+	var is_host: bool = OS.get_cmdline_user_args().has("--host")
+	var is_client_arg: bool = false
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--connect="):
+			is_client_arg = true
+			break
+	# Mode auto-hébergé natif : --host / --connect lancent directement la partie
+	# dès que le réseau est prêt (le lobby AUTOLOAD a déjà démarré le serveur).
+	if is_host or is_client_arg:
+		_auto_launch = true
+		return
 	var code := _url_param("room")
 	if code.is_empty():
 		# Fallback desktop : args du lancement (--room=XXXX).
@@ -55,12 +75,20 @@ func _auto_join_from_entry() -> void:
 			if arg.begins_with("--room="):
 				code = arg.trim_prefix("--room=").strip_edges()
 				break
+	# Un serveur dédié sans room précise rejoint une room publique par défaut,
+	# pour que les joueurs le retrouvent toujours (partie partagée permanente).
+	if code.is_empty() and is_server:
+		code = "the-last-clan-officiel"
 	if code.is_empty():
 		return
 	_on_status("Lien détecté : rejoint la partie « %s »…" % code)
 	_join_code_input.text = code
-	if OS.has_feature("editor"):
-		# En local, on pré-remplit le champ pour que l'utilisateur valide.
+	# En éditeur, le `--room` ne fait que pré-remplir le champ (l'utilisateur
+	# valide lui-même), SAUF si `--autostart` est fourni : permet d'automatiser
+	# un vrai test multijoueur en lançant plusieurs clients en ligne de commande
+	# qui rejoignent ET lancent la partie sans aucune interaction. Le serveur
+	# dédié, lui, lance toujours la partie automatiquement.
+	if OS.has_feature("editor") and not OS.get_cmdline_user_args().has("--autostart") and not is_server:
 		_on_status("Lien détecté : « %s ». Cliquez sur Rejoindre." % code)
 		return
 	_auto_launch = true
@@ -129,6 +157,16 @@ func _build_ui() -> void:
 	_offline_button.disabled = false
 	_offline_button.pressed.connect(_on_offline_pressed)
 	vb.add_child(_offline_button)
+
+	# Sélecteur de serveurs (modèle « royaumes ») — au premier plan.
+	vb.add_child(_field_label("Choisir un serveur (royaume)"))
+	_servers_box = VBoxContainer.new()
+	_servers_box.add_theme_constant_override("separation", 6)
+	vb.add_child(_servers_box)
+	_build_server_list(_servers_box)
+
+	var sep := HSeparator.new()
+	vb.add_child(sep)
 
 	# Onglets Créer / Rejoindre
 	var tabs := TabContainer.new()
@@ -368,6 +406,10 @@ func _on_server_disconnected() -> void:
 	_refresh_players()
 	_update_launch()
 
+func _on_roster_changed() -> void:
+	_refresh_players()
+	_update_launch()
+
 func _on_chat(author: String, text: String) -> void:
 	_chat_log.append_text("[b]%s[/b] : %s\n" % [author, text])
 
@@ -421,3 +463,60 @@ func _refresh_recent() -> void:
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.pressed.connect(_on_recent_pressed.bind(code))
 		_recent_box.add_child(b)
+
+## --- Sélecteur de serveurs (modèle « royaumes ») ---
+
+## Charge la liste des serveurs depuis servers.json (embarqué, modifiable).
+func _load_servers() -> void:
+	_servers.clear()
+	if not FileAccess.file_exists(SERVERS_JSON):
+		push_warning("Fichier de serveurs introuvable : %s" % SERVERS_JSON)
+		return
+	var f := FileAccess.open(SERVERS_JSON, FileAccess.READ)
+	if f == null:
+		return
+	var data: Variant = JSON.parse_string(f.get_as_text())
+	if data is Dictionary and data.has("servers"):
+		for s in data["servers"]:
+			if s is Dictionary:
+				_servers.append(s)
+
+## Affiche le sélecteur de serveurs dans l'onglet « Serveurs ».
+## Ajoute les boutons pour chaque serveur de la liste.
+func _build_server_list(container: VBoxContainer) -> void:
+	for child in container.get_children():
+		child.queue_free()
+	if _servers.is_empty():
+		var none := Label.new()
+		none.text = "Aucun serveur configuré."
+		none.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+		container.add_child(none)
+		return
+	for server in _servers:
+		var sname := str(server.get("name", "Serveur"))
+		var sub := str(server.get("subtitle", ""))
+		var transport := str(server.get("transport", "enet"))
+		var address := str(server.get("address", ""))
+		var room := str(server.get("room", ""))
+		var is_official: bool = bool(server.get("official", false))
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(0, 48)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var badge := "⭐ " if is_official else "🌐 "
+		var label := badge + sname
+		if not sub.is_empty():
+			label += "\n      " + sub
+		b.text = label
+		b.tooltip_text = (transport.to_upper() + " — " + address)
+		b.pressed.connect(_on_server_pressed.bind(transport, address, room))
+		container.add_child(b)
+
+## Action : rejoint le serveur choisi et lance la partie.
+func _on_server_pressed(transport: String, address: String, room: String = "") -> void:
+	_apply_name()
+	if address.is_empty():
+		_on_status("Ce serveur n'a pas d'adresse configurée.")
+		return
+	_on_status("Connexion au serveur « %s » (%s, royaume %s)…" % [address, transport, room])
+	_auto_launch = true
+	Lobby.join_server(transport, address, room)

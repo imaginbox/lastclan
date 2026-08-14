@@ -9,6 +9,10 @@ extends StaticBody3D
 ## Signaux émis vers le contrôleur (main.gd) pour qu'il fasse le spawn réel.
 signal unit_requested(unit_type: int)   # 0 = paysan, 1 = soldat
 signal building_changed
+## Émis quand ce bâtiment est détruit/déplacé hors de la grille (local SEUL).
+## Le contrôleur (main.gd) le relaie en réseau pour que les copies distantes
+## disparaissent aussi (pas de bâtiment fantôme chez les autres joueurs).
+signal removed(cell: Vector2i)
 
 enum Type { TOWN_HALL, BARRACKS, HOUSE, TOWER, FERME, CARRIERE, MINE_OR }
 enum Unit { VILLAGER, SOLDIER }
@@ -88,6 +92,14 @@ var level: int = 1
 var hp: int = 100
 var max_hp: int = 100
 var grid_cell := Vector2i.ZERO   # cellule d'ancrage (bas-gauche de l'empreinte)
+## Copie DISTANTE (vue d'un autre joueur) : vrai quand ce bâtiment est la
+## représentation d'une construction appartenant à un autre pair. N'est ni
+## sélectionnable, ni productif, ni recruteur — c'est un simple visuel + obstacle.
+var remote: bool = false
+## peer_id du propriétaire réel de ce bâtiment (à définir sur les copies distantes).
+var owner_peer: int = 0
+## référence vers le script main (relais des dégâts des copies distantes).
+var relay: Node = null
 
 var _mesh: MeshInstance3D = null
 var _base_material: StandardMaterial3D = null
@@ -118,6 +130,8 @@ func _ready() -> void:
 	hp = max_hp
 
 func _process(delta: float) -> void:
+	if remote:
+		return  # les copies distantes ne produisent pas (économie du propriétaire)
 	_produce(delta)
 
 ## --- Accesseurs de config ---
@@ -268,12 +282,22 @@ func attack_damage() -> int:
 
 ## --- Dégâts / destruction ---
 func take_damage(amount: int) -> void:
+	# Copie distante : on relaie les dégâts au propriétaire réel, qui fait
+	# autorité sur son bâtiment. On ne détruit pas la copie localement.
+	if remote:
+		if relay != null and is_instance_valid(relay):
+			relay.request_building_damage(owner_peer, grid_cell, amount)
+		return
 	hp -= amount
 	_update_visual()
 	if hp <= 0:
 		_destroy()
 
 func _destroy() -> void:
+	# Diffuse la destruction au monde réseau SAUF pour les copies distantes
+	# (on ne veut pas re-propager la suppression d'une copie qu'on vient de créer).
+	if not remote:
+		removed.emit(grid_cell)
 	queue_free()
 
 ## --- Visuel ---
@@ -313,6 +337,19 @@ func _update_visual() -> void:
 		return
 	var ratio := clampf(float(hp) / float(max_hp), 0.0, 1.0)
 	_base_material.albedo_color = _cfg().get("color", Color.WHITE).lerp(Color.BLACK, 0.3 * (1.0 - ratio))
+
+## Applique la teinte du propriétaire à une copie distante (distingue les camps).
+func set_owner_tint(color: Color) -> void:
+	if _base_material != null:
+		_base_material.albedo_color = color
+
+## Actualise le visuel d'une copie distante après un changement de type/niveau
+## (utilisé lors de la synchro des bâtiments entre joueurs).
+func update_visual_for_sync() -> void:
+	if _base_material != null and not remote:
+		return
+	if remote and _base_material != null:
+		_base_material.albedo_color = _cfg().get("color", Color.WHITE)
 
 ## Sélection visuelle (contour/teinte).
 func set_selected(on: bool) -> void:

@@ -11,6 +11,11 @@ extends StaticBody3D
 
 signal depleted ## Émis quand la ressource est épuisée (quantité <= 0).
 
+## Émis à chaque changement de quantité (récolte, repousse, sync distante),
+## pour que le contrôleur du monde (main.gd) puisse diffuser l'état aux autres
+## joueurs et que TOUS voient le même niveau d'épuisement (monde interactif partagé).
+signal amount_changed(node: ResourceNode)
+
 enum ResourceType { GOLD, WOOD, STONE, FOOD }
 
 ## Vitesse de régénération (unités par seconde).
@@ -70,6 +75,10 @@ const ROCK_STAGES: Array[PackedScene] = [
 @export var max_amount: int = 100
 @export var starting_amount: int = 100
 
+## Identifiant stable du nœud dans le monde (déterministe, même valeur chez tous
+## les clients d'une room). Utilisé pour synchroniser la quantité entre joueurs.
+var res_id: int = -1
+
 ## Quantité restante (lecture publique).
 var amount: int
 ## Nombre de récoltes simultanées en cours (pour différer la destruction).
@@ -97,6 +106,7 @@ func _process(delta: float) -> void:
 			amount = min(amount + 1, max_amount)
 			_regen_timer = 0.0
 			_update_visual()
+			amount_changed.emit(self)
 
 func _ready() -> void:
 	# COUCHE DÉDIÉE À LA SÉLECTION (couche 3) : les ressources (arbres, rochers)
@@ -200,9 +210,22 @@ func harvest(count: int) -> int:
 	var taken := mini(count, amount)
 	amount -= taken
 	_update_visual()
+	amount_changed.emit(self)
 	if amount <= 0:
 		depleted.emit()
 	return taken
+
+## Applique une quantité reçue d'un joueur distant (sync mondiale pour que tous
+## voient le même épuisement). Met à jour la quantité ET le visuel. Le signal
+## depleted/amount_changed n'est PAS re-émis pour éviter une boucle de diffusion.
+func set_amount_from_sync(new_amount: int) -> void:
+	# Pas de re-émission de amount_changed : on vient JUSTE de le recevoir d'un
+	# pair, le re-diffuser créerait une boucle de broadcast inutile.
+	var clamped := clampi(new_amount, 0, max_amount)
+	if clamped == amount:
+		return
+	amount = clamped
+	_update_visual()
 
 ## Nombre de nœuds encore présents (pour le directeur du monde).
 func exists() -> bool:

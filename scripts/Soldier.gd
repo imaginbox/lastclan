@@ -21,6 +21,11 @@ const VILLAGE_HALF: float = 190.0
 
 @onready var anim_player: AnimationPlayer = null
 
+## Santé de l'unité : permet d'être endommagé par d'autres joueurs (combat PvP).
+var hp: int = 80
+var max_hp: int = 80
+signal died
+
 var _state: State = State.IDLE
 var _move_point: Vector3 = Vector3.ZERO
 var _target: Node3D = null
@@ -146,3 +151,14 @@ func _sel_mat() -> StandardMaterial3D:
 
 func _is_sel_material(mat: Material) -> bool:
 	return mat == _sel_material
+
+## --- Santé / Combat PvP ---
+## Reçoit des dégâts d'une unité adverse. Meurt quand la santé tombe à 0.
+func take_damage(amount: int) -> void:
+	hp -= amount
+	if hp <= 0:
+		die()
+
+func die() -> void:
+	died.emit()
+	queue_free()

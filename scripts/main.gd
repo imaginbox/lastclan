@@ -35,6 +35,10 @@ var _selected_units: Array[Node] = []
 var _selected_building: Building = null
 ## Position de la base de CE joueur (origine en solo, dispersée en multijoueur).
 var _base_origin: Vector3 = Vector3.ZERO
+## RNG déterministe du monde : seedé depuis Lobby.world_seed pour que TOUS les
+## clients d'une même room génèrent le MÊME monde (ressources, décor). C'est ce
+## qui rend le terrain visible et identique pour tout le monde.
+var _world_rng: RandomNumberGenerator = null
 
 ## --- Grille / occupation ---
 var _occupancy := {}   # Vector2i -> Building
@@ -61,9 +65,16 @@ var _drag_selecting := false
 # --- Tactile : nombre de doigts posés et autorisation du tap (1 seul doigt) ---
 var _touch_count := 0
 var _tap_allowed := true
-# --- Bouton d'ordre mobile (remplace le clic droit) ---
-var _order_btn: Button = null
+# --- Barre d'action mobile (remplace le clic droit) ---
+# Modes d'ordre : quel ordre le prochain tap sur le monde doit-il exécuter.
+enum OrderMode { NONE, MOVE, GATHER, ATTACK }
+var _order_mode: int = OrderMode.NONE
+var _order_bar: HBoxContainer = null
+var _order_btns := {}   # OrderMode -> Button
+var _order_hint: Label = null
 var _order_armed := false
+# --- Échelle UI (plus grande sur mobile) ---
+var _ui_scale: float = 1.0
 
 ## --- HUD ---
 var _hud_gold_label: Label = null
@@ -82,7 +93,25 @@ var _float_root: CanvasLayer = null
 var _remote_units: Node3D = null
 var _remote_rep: Dictionary = {}      # peer_id -> Array[Node3D] (représentations distantes)
 var _sync_timer: Timer = null
+## --- Sync des bâtiments (multijoueur) ---
+## Registre des bâtiments distants : "owner_peer:vector_string_of_cell" -> Building.
+var _remote_buildings: Dictionary = {}
+var _remote_building_root: Node3D = null
 const UNIT_SYNC_INTERVAL: float = 0.15  # ~6,6 envois/s
+
+## Graine avec laquelle le monde a été construit. Sert à détecter un changement
+## de seed en cours de route (ex. _sync_room du serveur qui arrive après le build)
+## pour REconstruire le monde et garder tous les joueurs d'un royaume identiques.
+var _built_seed: int = -1
+var _world_spawned: bool = false
+
+## --- Sync mondiale des ressources (décor interactif partagé) ---
+## Chaque ResourceNode reçoit un res_id DETERMINISTE (ordre de spawn de la graine),
+## identique chez tous les clients d'une même room → on peut diffuser les
+## quantités par cet id pour que TOUS voient le même épuisement.
+var _next_res_id: int = 0
+## res_id -> ResourceNode (registre local, pour retrouver un nœud depuis une sync).
+var _res_by_id: Dictionary = {}
 const REMOTE_UNIT_COLORS: Array[Color] = [
 	Color(0.3, 0.6, 1.0),   # bleu
 	Color(1.0, 0.4, 0.4),   # rouge
@@ -110,6 +139,9 @@ func _ready() -> void:
 	randomize()
 	_camera = $Camera3D
 	add_to_group("world")
+	# Détection tactile dès le début : toutes les UI (HUD, barre d'ordre, panels)
+	# doivent se construire avec la bonne échelle.
+	_ui_scale = 1.8 if DisplayServer.is_touchscreen_available() else 1.0
 	_setup_float_layer()
 	_setup_selection_overlay()
 	_setup_hud()
@@ -143,27 +175,65 @@ func _on_base_fallback_timeout() -> void:
 	Lobby._go_offline()
 
 func _on_base_ready(_origin: Vector3) -> void:
-	Lobby.base_ready.disconnect(_on_base_ready)
+	# Sans la connexion, on garde la réceptivité à un éventuel bonus
+	# (le monde peut être reconstruit si le seed du royaume change ensuite).
+	if _world_spawned and _built_seed != Lobby.world_seed:
+		_clear_world()
+		_spawn_world()
+		return
+	if _world_spawned:
+		return
 	_spawn_world()
 
 ## Construit le monde (ressources, bâtiments, paysans, brouillard, caméra)
 ## autour de la base de CE joueur.
 func _spawn_world() -> void:
 	_base_origin = Lobby.base_origin
-	# Répartit les ressources autour de la base du joueur.
+	# RNG du monde, seedé de façon déterministe depuis la room : tous les clients
+	# d'une même room génèrent identiquement le décor et les ressources.
+	_world_rng = RandomNumberGenerator.new()
+	_world_rng.seed = Lobby.world_seed
+	_built_seed = Lobby.world_seed
+	_world_spawned = true
+	# Répartit les ressources (positions absolues, identiques pour tous).
 	_spawn_resources()
-	_spawn_initial_buildings()
-	_spawn_villagers()
+	# Serveur dédié : il génère le MONDE partagé (ressources, décor) pour que tous
+	# les joueurs le retrouvent identique, mais il n'a pas de village joueur à lui
+	# (personne ne le contrôle) ni de caméra interactive inutile. Il sert de
+	# présence hôte permanente et légère qui reste connectée au relais.
+	if not Lobby.is_dedicated_server:
+		_spawn_initial_buildings()
+		_spawn_villagers()
 	_spawn_decor()
 	# Les boutons dépendent du niveau de l'hôtel de ville, créé ci-dessus.
 	_refresh_build_buttons()
-	# Pose la caméra sur la base du joueur.
-	if _camera != null and _camera.has_method("set_pivot"):
+	# Pose la caméra sur la base du joueur (pas de caméra interactive en serveur).
+	if _camera != null and _camera.has_method("set_pivot") and not Lobby.is_dedicated_server:
 		_camera.call("set_pivot", _base_origin)
 	# En ligne : prépare la réception des unités des autres joueurs + diffusion.
 	if Lobby.is_online:
 		_setup_remote_units()
 	_await_frame_then_bake()
+
+## Vide les nœuds du monde générés (ressources, décor, bâtiments, unités) pour
+## pouvoir reconstruire le monde avec un nouveau seed. Ne touche pas à l'occupancy
+## des bâtiments du joueur construits après coup (ils sont suivis par ailleurs).
+func _clear_world() -> void:
+	_clear_root(resource_root)
+	_clear_root(decor_root)
+	_clear_root(building_root)
+	_clear_root(villager_root)
+	if _remote_units != null:
+		_clear_root(_remote_units)
+	if _remote_building_root != null:
+		_clear_root(_remote_building_root)
+	_occupancy.clear()
+	_res_by_id.clear()
+	_next_res_id = 0
+
+func _clear_root(root: Node) -> void:
+	for child in root.get_children():
+		child.queue_free()
 
 func _await_frame_then_bake() -> void:
 	await get_tree().physics_frame
@@ -247,8 +317,9 @@ func _schedule_rebake() -> void:
 ## (or, bois, pierre) dispersées sur la carte. Comme les arbres (bois) s'épuisent
 ## vite, on en place beaucoup plus que les autres types.
 func _spawn_resources() -> void:
-	# Grappes de ressources réparties autour de la base du joueur (décalées de
-	# la position de base pour que chaque joueur ait des ressources locales).
+	# Les ressources sont placées à des positions ABSOLUES dérivées de la graine
+	# du monde : chaque client de la room génère exactement les mêmes grappes aux
+	# mêmes endroits. Le monde est ainsi partagé et visible par tous.
 	var cluster_positions := [
 		Vector3(8, 0, 4),
 		Vector3(10, 0, -3),
@@ -260,14 +331,14 @@ func _spawn_resources() -> void:
 		Vector3(-8, 0, 16),
 	]
 	for pos in cluster_positions:
-		_spawn_cluster(_base_origin + pos, 4)
-	# Plusieurs arbres isolés (bois) disséminés autour de la base, car ils
-	# s'épuisent très vite : la forêt reste dense.
+		_spawn_cluster(pos, 4)
+	# Plusieurs arbres isolés (bois) disséminés sur le monde, car ils s'épuisent
+	# très vite : la forêt reste dense. Positions absolues, identiques pour tous.
 	for i in 14:
-		var pos := _base_origin + Vector3(
-			randf_range(-24.0, 24.0),
+		var pos := Vector3(
+			_world_rng.randf_range(-24.0, 24.0),
 			0.0,
-			randf_range(-24.0, 24.0)
+			_world_rng.randf_range(-24.0, 24.0)
 		)
 		pos.x = clampf(pos.x, -GRID_HALF, GRID_HALF)
 		pos.z = clampf(pos.z, -GRID_HALF, GRID_HALF)
@@ -277,9 +348,9 @@ func _spawn_resources() -> void:
 func _spawn_cluster(center: Vector3, count: int) -> void:
 	for i in count:
 		var offset := Vector3(
-			randf_range(-3.0, 3.0),
+			_world_rng.randf_range(-3.0, 3.0),
 			0.0,
-			randf_range(-3.0, 3.0)
+			_world_rng.randf_range(-3.0, 3.0)
 		)
 		var pos := center + offset
 		pos.x = clampf(pos.x, -GRID_HALF, GRID_HALF)
@@ -295,8 +366,8 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 	for attempt in 8:
 		if not _near_building(pos, 6.0):
 			break
-		pos.x = clampf(pos.x + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
-		pos.z = clampf(pos.z + randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
+		pos.x = clampf(pos.x + _world_rng.randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
+		pos.z = clampf(pos.z + _world_rng.randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
 	var t: ResourceNode.ResourceType
 	if forced_type >= 0:
 		t = forced_type as ResourceNode.ResourceType
@@ -304,7 +375,7 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 		# RÉPARTITION STRATÉGIQUE : Le bois est abondant (60%), 
 		# la pierre modérée (25%), la nourriture rare (10%), 
 		# et l'or est très rare (5%).
-		var r := randf()
+		var r := _world_rng.randf()
 		if r < 0.6: t = ResourceNode.ResourceType.WOOD
 		elif r < 0.85: t = ResourceNode.ResourceType.STONE
 		elif r < 0.95: t = ResourceNode.ResourceType.FOOD
@@ -321,21 +392,110 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 		ResourceNode.ResourceType.FOOD:
 			node.set("max_amount", 40)
 	node.set("starting_amount", node.get("max_amount"))
+	# Identifiant STABLE et DÉTERMINISTE : comme le monde est généré à partir de la
+	# même graine (même ordre de spawn), chaque client d'une room attribue le MÊME
+	# res_id au même arbre/rocher → on peut diffuser sa quantité par cet id.
+	node.set("res_id", _next_res_id)
+	_next_res_id += 1
+	_res_by_id[_next_res_id - 1] = node
 	node.add_to_group("resource")
 	resource_root.add_child(node)
 	node.global_position = pos
+	# Récolte/repousse : on diffuse la nouvelle quantité aux autres joueurs, pour
+	# que TOUS voient le même épuisement (le monde reste interactif et cohérent).
+	node.amount_changed.connect(_on_resource_amount_changed)
 	# Quand la ressource est épuisée, elle disparaît et réapparaît ailleurs.
 	node.depleted.connect(_on_resource_depleted.bind(node))
 	return node
 
 ## Quand une ressource est épuisée : elle réapparaît même type ailleurs, et
 ## l'ancien nœud est libéré. Le monde reste ainsi peuplé en permanence.
+##
+## MULTIJOUEUR : le respawn est décidé ici (le client dont le paysan a pris la
+## dernière unité), puis DIFFUSÉ à tous. Comme la quantité est déjà synchronisée
+## via amount_changed → _sync_resource_amount, chaque client voit le même nœud
+## tomber à 0, mais SEUL le récolteur émet depleted localement (le setter de sync
+## ne ré-émet pas depleted). On choisit donc un nouvel emplacement DÉTERMINISTE et
+## on le diffuse pour que TOUS recréent la même ressource au même endroit.
 func _on_resource_depleted(node: Node3D) -> void:
+	var rid: int = node.get("res_id")
 	var t: int = node.get("resource_type")
-	var pos := _random_free_world_pos()
-	_spawn_resource_node(pos, t)
+	if Lobby.is_online and multiplayer.multiplayer_peer != null:
+		# Choisit le nouvel emplacement, MAIS pour rester déterministe entre
+		# joueurs on le dérive de l'id de l'ancien nœud (pas du RNG local qui
+		# diverge entre clients) : position stable → monde identique partout.
+		var pos := _respawn_pos_for(rid)
+		var max_amt: int = node.get("max_amount")
+		node.queue_free()
+		_sync_resource_respawn.rpc(rid, t, pos.x, pos.z, max_amt)
+		_schedule_rebake()
+		return
+	# Hors ligne : comportement local d'origine.
+	var pos_off := _random_free_world_pos()
+	_spawn_resource_node(pos_off, t)
 	node.queue_free()
-	_schedule_rebake()  # nouvelles obstructions (arbres) à intégrer au navmesh
+	_schedule_rebake()
+
+## Choisit un emplacement de respawn DÉTERMINISTE depuis le res_id : tous les
+## clients d'une room placent la nouvelle ressource au même endroit, et le décor
+## reste identique chez tout le monde (aucune divergence de RNG).
+func _respawn_pos_for(rid: int) -> Vector3:
+	var angle := float((rid * 53) % 360) * PI / 180.0
+	var radius := 6.0 + float((rid * 37) % 60) / 3.0
+	var pos := Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+	pos.x = clampf(pos.x, -GRID_HALF, GRID_HALF)
+	pos.z = clampf(pos.z, -GRID_HALF, GRID_HALF)
+	# Évite de renaître pile à côté d'un bâtiment : décale légèrement sinon.
+	for attempt in 8:
+		if not _near_building(pos, 6.0):
+			break
+		var j := float(attempt + 1) * 2.0
+		pos.x = clampf(pos.x + cos(angle + j) * 2.0, -GRID_HALF, GRID_HALF)
+		pos.z = clampf(pos.z + sin(angle + j) * 2.0, -GRID_HALF, GRID_HALF)
+	return pos
+
+## Reçoit la réapparition (respawn) d'une ressource diffusée par le récolteur :
+## retire l'ancien nœud (même res_id) et en crée un neuf au même emplacement,
+## pour que le décor reste identique chez tous les joueurs.
+@rpc("any_peer", "reliable", "call_local")
+func _sync_resource_respawn(rid: int, t: int, px: float, pz: float, max_amt: int) -> void:
+	var old: Object = _res_by_id.get(rid)
+	if old != null and is_instance_valid(old):
+		var old_node: Node3D = old as Node3D
+		old_node.queue_free()
+		_res_by_id.erase(rid)
+	# Recrée la ressource au même endroit, avec le même res_id → cohérent partout.
+	var nb: Node3D = RESOURCE_SCENE.instantiate()
+	nb.set("resource_type", t)
+	nb.set("max_amount", max_amt)
+	nb.set("starting_amount", max_amt)
+	nb.set("res_id", rid)
+	nb.add_to_group("resource")
+	resource_root.add_child(nb)
+	nb.global_position = Vector3(px, 0.0, pz)
+	nb.amount_changed.connect(_on_resource_amount_changed)
+	nb.depleted.connect(_on_resource_depleted.bind(nb))
+	_res_by_id[rid] = nb
+	_schedule_rebake()
+
+## Un joueur a récolté / un arbre a repoussé : on diffuse la nouvelle quantité pour
+## que TOUS voient le même niveau d'épuisement (monde partagé et interactif).
+func _on_resource_amount_changed(node: Node3D) -> void:
+	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
+		return
+	var rid: int = node.get("res_id")
+	if rid < 0:
+		return
+	_sync_resource_amount.rpc(rid, int(node.get("amount")))
+
+## Reçoit une quantité mise à jour d'une ressource (récolte/repousse) et l'applique
+## localement sans re-diffusion (évite la boucle de broadcast).
+@rpc("any_peer", "reliable", "call_local")
+func _sync_resource_amount(rid: int, new_amount: int) -> void:
+	var n: Object = _res_by_id.get(rid)
+	if n != null and is_instance_valid(n):
+		var node := n as Node3D
+		node.call("set_amount_from_sync", new_amount)
 
 ## Disperser la décoration : des touffes d'herbe (modèles fournis) un peu partout
 ## + de grands arbres décoratifs (non récoltables) pour le paysage. Concentration
@@ -351,8 +511,8 @@ func _spawn_decor() -> void:
 		d.add_to_group("decor")
 		decor_root.add_child(d)
 		d.global_position = pos
-		d.rotation_degrees.y = randf_range(0, 360)
-		var s := randf_range(0.7, 1.4)
+		d.rotation_degrees.y = _world_rng.randf_range(0, 360)
+		var s := _world_rng.randf_range(0.7, 1.4)
 		d.scale = Vector3(s, s, s)
 	# Arbres décoratifs : SUPPRIMÉS. 
 	# Tous les arbres du monde sont désormais des ResourceNode récoltables.
@@ -363,13 +523,13 @@ func _spawn_decor() -> void:
 ## distance à la base (le monde est plus vivant près du joueur).
 func _random_decor_pos() -> Vector3:
 	for attempt in 40:
-		var angle := randf() * TAU
-		var dist := pow(randf(), 1.6) * 120.0
-		var pos := _base_origin + Vector3(cos(angle) * dist, 0, sin(angle) * dist)
+		var angle := _world_rng.randf() * TAU
+		var dist := pow(_world_rng.randf(), 1.6) * 120.0
+		var pos := Vector3(cos(angle) * dist, 0, sin(angle) * dist)
 		pos.x = clampf(pos.x, -GRID_HALF, GRID_HALF)
 		pos.z = clampf(pos.z, -GRID_HALF, GRID_HALF)
-		# Garde une petite marge autour de la base du joueur.
-		if pos.distance_to(_base_origin) < 4.0:
+		# Garde une petite marge autour du centre du monde.
+		if pos.distance_to(Vector3.ZERO) < 4.0:
 			continue
 		var cell := _cell_from_pos(pos)
 		if not _occupancy.has(cell):
@@ -380,12 +540,12 @@ func _random_decor_pos() -> Vector3:
 ## (les grands arbres ne bloquent pas la vue du village).
 func _random_decor_pos_tree() -> Vector3:
 	for attempt in 40:
-		var angle := randf() * TAU
-		var dist := pow(randf(), 1.6) * 150.0
-		var pos := _base_origin + Vector3(cos(angle) * dist, 0, sin(angle) * dist)
+		var angle := _world_rng.randf() * TAU
+		var dist := pow(_world_rng.randf(), 1.6) * 150.0
+		var pos := Vector3(cos(angle) * dist, 0, sin(angle) * dist)
 		pos.x = clampf(pos.x, -GRID_HALF, GRID_HALF)
 		pos.z = clampf(pos.z, -GRID_HALF, GRID_HALF)
-		if pos.distance_to(_base_origin) < 8.0:
+		if pos.distance_to(Vector3.ZERO) < 8.0:
 			continue
 		var cell := _cell_from_pos(pos)
 		if not _occupancy.has(cell):
@@ -395,6 +555,11 @@ func _random_decor_pos_tree() -> Vector3:
 ## Directeur du monde : vérifie périodiquement la densité des ressources et fait
 ## apparaître de nouvelles sources aux emplacements libres quand elles se raréfient.
 func _world_director_tick() -> void:
+	# En ligne, seul le HOST (peer 1) fait apparaître de nouvelles ressources et les
+	# diffuse : sinon chaque client respawn de son côté à des RNG différents et le
+	# décor diverge. Hors ligne, comportement local d'origine.
+	if Lobby.is_online and multiplayer.multiplayer_peer != null and Lobby.my_id != 1:
+		return
 	var threshold := 10
 	var count := 0
 	for child in resource_root.get_children():
@@ -402,16 +567,64 @@ func _world_director_tick() -> void:
 		if r != null and r.exists():
 			count += 1
 	if count < threshold:
-		_spawn_cluster(_random_free_world_pos(), 3)
+		_spawn_world_cluster(_random_free_world_pos(), 3)
+
+## L'hôte fait apparaître une grappe de ressources et la diffuse à tous (chaque
+## nœud porte un res_id déterministe) → le monde reste identique chez chacun.
+func _spawn_world_cluster(center: Vector3, count: int) -> void:
+	var online: bool = Lobby.is_online and multiplayer.multiplayer_peer != null
+	for i in count:
+		var offset := Vector3(
+			_world_rng.randf_range(-3.0, 3.0),
+			0.0,
+			_world_rng.randf_range(-3.0, 3.0)
+		)
+		var pos := center + offset
+		pos.x = clampf(pos.x, -GRID_HALF, GRID_HALF)
+		pos.z = clampf(pos.z, -GRID_HALF, GRID_HALF)
+		if online:
+			# Diffuse chaque nœud explicitement (type + position + quantit�). Le
+			# call_local de _sync_resource_respawn recrée le nœud chez l'hôte aussi.
+			var t := _random_resource_type()
+			_sync_resource_respawn.rpc(_next_res_id, t, pos.x, pos.z, _max_for_type(t))
+			_next_res_id += 1
+		else:
+			_spawn_resource_node(pos)
+
+## Type de ressource tiré au sort avec la répartition stratégique utilisée à la
+## création du monde (bois abondant, pierre modérée, nourriture rare, or très rare).
+func _random_resource_type() -> int:
+	var r := _world_rng.randf()
+	if r < 0.6:
+		return ResourceNode.ResourceType.WOOD
+	elif r < 0.85:
+		return ResourceNode.ResourceType.STONE
+	elif r < 0.95:
+		return ResourceNode.ResourceType.FOOD
+	else:
+		return ResourceNode.ResourceType.GOLD
+
+## Quantité maximale associée à un type de ressource (cohérent avec la création).
+func _max_for_type(t: int) -> int:
+	match t as ResourceNode.ResourceType:
+		ResourceNode.ResourceType.GOLD:
+			return 100
+		ResourceNode.ResourceType.WOOD:
+			return 80
+		ResourceNode.ResourceType.STONE:
+			return 60
+		ResourceNode.ResourceType.FOOD:
+			return 40
+	return 80
 
 ## Position libre aléatoire dans le monde (loin des bâtiments).
 func _random_free_world_pos() -> Vector3:
 	for attempt in 20:
-		var pos := Vector3(randf_range(-GRID_HALF, GRID_HALF), 0.0, randf_range(-GRID_HALF, GRID_HALF))
+		var pos := Vector3(_world_rng.randf_range(-GRID_HALF, GRID_HALF), 0.0, _world_rng.randf_range(-GRID_HALF, GRID_HALF))
 		var cell := _cell_from_pos(pos)
 		if not _occupancy.has(cell) and not _near_building(pos, 6.0):
 			return pos
-	return Vector3(randf_range(-GRID_HALF, GRID_HALF), 0.0, randf_range(-GRID_HALF, GRID_HALF))
+	return Vector3(_world_rng.randf_range(-GRID_HALF, GRID_HALF), 0.0, _world_rng.randf_range(-GRID_HALF, GRID_HALF))
 
 ## Vrai si la position est trop proche d'un bâtiment : sert à ne pas faire
 ## pousser d'arbres/ressources juste à côté des constructions (jamais bloquantes
@@ -504,6 +717,8 @@ func _place_building(b: Building, anchor: Vector2i) -> void:
 	b.global_position = _cell_center(center)
 	b.unit_requested.connect(_on_unit_requested)
 	b.building_changed.connect(_refresh_building_panel)
+	b.building_changed.connect(_broadcast_building_upgrade.bind(b))
+	b.removed.connect(_on_building_removed)
 	_refresh_population_cap()
 	_refresh_building_panel()
 	_schedule_rebake()  # le nouveau bâtiment découpe le navmesh (contournement)
@@ -542,6 +757,10 @@ func _setup_remote_units() -> void:
 	_remote_units = Node3D.new()
 	_remote_units.name = "RemoteUnits"
 	add_child(_remote_units)
+	# Conteneur des bâtiments distants (les constructions des autres joueurs).
+	_remote_building_root = Node3D.new()
+	_remote_building_root.name = "RemoteBuildings"
+	add_child(_remote_building_root)
 	Lobby.player_disconnected.connect(_on_remote_player_disconnected)
 	# Diffusion périodique de nos positions.
 	_sync_timer = Timer.new()
@@ -550,53 +769,122 @@ func _setup_remote_units() -> void:
 	_sync_timer.timeout.connect(_broadcast_units)
 	add_child(_sync_timer)
 
-## Rassemble les positions monde de toutes nos unités (paysans + soldats).
-func _collect_unit_positions() -> PackedVector3Array:
-	var out := PackedVector3Array()
+## Rassemble positions + santé de toutes nos unités (paysans + soldats).
+func _collect_unit_states() -> Array:
+	var states: Array = []
 	for child in villager_root.get_children():
 		if child is CharacterBody3D:
-			out.append(child.global_position)
-	return out
+			var h: float = child.get("hp") if child.has_method("take_damage") else 100.0
+			var mh: float = child.get("max_hp") if child.has_method("take_damage") else 100.0
+			var kind: int = 1 if child is Soldier else 0
+			states.append([child.global_position, h, mh, kind])
+	return states
 
-## Envoie nos positions à tous les pairs (appelé régulièrement par le timer).
+## Envoie nos unités (positions + santé + type) à tous les pairs.
+## Profite du même tick pour diffuser l'ÉTAT COMPLET de nos bâtiments (snapshot
+## périodique) : ça couvre à la fois nos constructions initiales (base) ET celles
+## de joueurs arrivés après coup, sans événement manquant.
 func _broadcast_units() -> void:
 	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
 		return
+	var bstates: Array = _collect_building_states()
+	if bstates.size() > 0:
+		_sync_buildings.rpc(Lobby.my_id, bstates)
 	if villager_root.get_child_count() == 0:
 		return
-	_sync_units.rpc(Lobby.my_id, _collect_unit_positions())
+	var payload: Array = _collect_unit_states()
+	_sync_units.rpc(Lobby.my_id, payload)
 
-## Reçoit les positions d'un joueur distant et met à jour ses représentations.
-@rpc("any_peer", "unreliable_ordered", "call_local")
-func _sync_units(owner_id: int, positions: PackedVector3Array) -> void:
+## Rassemble l'état de TOUS nos bâtiments : [type, cell_x, cell_y, level].
+## Diffusé périodiquement (voir _broadcast_units) pour que chaque joueur voie le
+## monde des autres se mettre à jour (création, déplacement, niveau).
+func _collect_building_states() -> Array:
+	var states: Array = []
+	for child in building_root.get_children():
+		var b := child as Building
+		if b == null:
+			continue
+		states.append([b.type, b.grid_cell.x, b.grid_cell.y, b.level])
+	return states
+
+## Reçoit l'état complet des bâtiments d'un joueur distant et insère/met à jour
+## chacun. Comme c'est un snapshot complet, il remplace proprement l'état local
+## des bâtiments de ce joueur (pas de fantôme, pas d'oubli pour les arrivants).
+@rpc("any_peer", "reliable", "call_local")
+func _sync_buildings(owner_id: int, states: Array) -> void:
 	if owner_id == Lobby.my_id:
 		return  # on ignore nos propres données (déjà en local)
-	_update_remote_units(owner_id, positions)
+	for st in states:
+		if st.size() >= 4:
+			var key := "%d:%d,%d" % [owner_id, st[1], st[2]]
+			_upsert_remote_building(owner_id, int(st[0]), Vector2i(int(st[1]), int(st[2])), int(st[3]), key)
+	_schedule_rebake()
+	_mp_log("SEE_BUILDINGS peer=%d count=%d" % [owner_id, states.size()])
 
-## Crée / déplace / masque les capsules représentant les unités d'un joueur distant.
-func _update_remote_units(owner_id: int, positions: PackedVector3Array) -> void:
+## Reçoit les unités d'un joueur distant et met à jour ses représentations.
+@rpc("any_peer", "unreliable_ordered", "call_local")
+func _sync_units(owner_id: int, states: Array) -> void:
+	if owner_id == Lobby.my_id:
+		return  # on ignore nos propres données (déjà en local)
+	_update_remote_units(owner_id, states)
+
+## Crée / déplace / masque les représentations des unités d'un joueur distant.
+## Chaque état = [position, hp, max_hp, kind] : on reflète position, type ET vie.
+func _update_remote_units(owner_id: int, states: Array) -> void:
 	if _remote_units == null:
 		return
 	if not _remote_rep.has(owner_id):
 		_remote_rep[owner_id] = []
 	var reps: Array = _remote_rep[owner_id]
 	# S'assure qu'on a assez de représentations.
-	while reps.size() < positions.size():
-		var cap := _make_remote_unit(owner_id)
+	while reps.size() < states.size():
+		var cap := _make_remote_unit(owner_id, reps.size())
 		_remote_units.add_child(cap)
 		reps.append(cap)
-	# Positionne les représentations actives.
-	for i in positions.size():
-		var rep: Node3D = reps[i]
+	if not _remote_rep.has("_logged_%d" % owner_id) and states.size() > 0:
+		_remote_rep["_logged_%d" % owner_id] = true
+		_mp_log("SEE_UNITS peer=%d count=%d hp0=%.0f/%.0f" % [owner_id, states.size(), states[0][1], states[0][2]])
+	# Positionne les représentations actives + met à jour leur vie.
+	for i in states.size():
+		var st: Array = states[i]
+		var rep: RemoteUnit = reps[i]
 		rep.visible = true
-		rep.global_position = positions[i]
+		rep.unit_index = i
+		rep.global_position = st[0]
+		var hpv: float = st[1]
+		var maxh: float = st[2]
+		_apply_remote_health(rep, hpv, maxh)
 	# Masque les représentations surnuméraires.
-	for i in range(positions.size(), reps.size()):
+	for i in range(states.size(), reps.size()):
 		reps[i].visible = false
 
-## Crée une capsule colorée représentant une unité distante.
-func _make_remote_unit(owner_id: int) -> Node3D:
-	var root := Node3D.new()
+## Met à jour l'échelle (et éventuellement la couleur) d'une représentation
+## distante en fonction des points de vie restants.
+func _apply_remote_health(rep: Node3D, hpv: float, maxh: float) -> void:
+	var ratio := 1.0
+	if maxh > 0.0:
+		ratio = clampf(hpv / maxh, 0.0, 1.0)
+	# Le personnage reste debout mais son échelle verticale se tasse avec la vie,
+	# et sa couleur fonce : on voit immédiatement une unité affaiblie.
+	var mat := _remote_rep_mat(rep)
+	if mat != null:
+		mat.albedo_color = _player_color(int(rep.get_meta("owner", 0)))
+		mat.albedo_color = mat.albedo_color.lerp(Color.BLACK, 0.5 * (1.0 - ratio))
+
+## Récupère le matériau partagé d'une représentation distante.
+func _remote_rep_mat(rep: Node3D) -> StandardMaterial3D:
+	if rep == null or not rep.has_meta("_mat"):
+		return null
+	return rep.get_meta("_mat") as StandardMaterial3D
+
+## Crée une capsule colorée représentant une unité distante. C'est une
+## RemoteUnit (attaquable), qui relaie les dégâts au propriétaire réel.
+func _make_remote_unit(owner_id: int, index: int) -> RemoteUnit:
+	var root := RemoteUnit.new()
+	root.owner_peer = owner_id
+	root.unit_index = index
+	root.relay = self
+	root.set_meta("owner", owner_id)
 	var mesh := MeshInstance3D.new()
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = _player_color(owner_id)
@@ -606,20 +894,166 @@ func _make_remote_unit(owner_id: int) -> Node3D:
 	mesh.mesh.height = 1.6
 	mesh.mesh.radius = 0.35
 	root.add_child(mesh)
+	root.set_meta("_mat", mat)
 	return root
 
 ## Couleur stable associée à un peer (pour distinguer les joueurs).
 func _player_color(peer_id: int) -> Color:
 	return REMOTE_UNIT_COLORS[abs(peer_id) % REMOTE_UNIT_COLORS.size()]
 
-## Quand un joueur distant quitte, on supprime ses représentations.
-func _on_remote_player_disconnected(peer_id: int) -> void:
-	if not _remote_rep.has(peer_id):
+## Journal multijoueur fiable (fichier local ; le stdout est mis en tampon
+## quand plusieurs instances graphiques tournent). Un fichier PAR peer.
+func _mp_log(msg: String) -> void:
+	var f := FileAccess.open("user://ziva_mp_%d.log" % Lobby.my_id, FileAccess.WRITE)
+	if f != null:
+		f.store_line("[peer=%d] %s" % [Lobby.my_id, msg])
+		f.close()
+
+## Demande d'appliquer des dégâts sur une unité appartenant à un autre joueur.
+## Envoyé par un attaquant au propriétaire (modèle : le propriétaire fait
+## autorité sur sa propre unité). Le propriétaire applique puis la synchro
+## périodique diffuse l'état actualisé à tous.
+func request_unit_damage(owner_peer: int, unit_index: int, amount: int) -> void:
+	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
 		return
-	for rep in _remote_rep[peer_id]:
-		if is_instance_valid(rep):
-			rep.queue_free()
-	_remote_rep.erase(peer_id)
+	# Le propriétaire est l'unique autorité : on cible spécifiquement son pair.
+	_apply_unit_damage.rpc_id(owner_peer, unit_index, amount)
+
+## (Chez le propriétaire) applique des dégâts sur l'unité indexée, en vérifiant
+## que l'émetteur est bien un des autres joueurs (anti-triche minimal).
+@rpc("any_peer", "reliable")
+func _apply_unit_damage(unit_index: int, amount: int) -> void:
+	if not Lobby.is_online:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if sender <= 1 or sender == Lobby.my_id:
+		return  # on n'accepte ni le relais fantôme ni nous-mêmes
+	var units := villager_root.get_children()
+	if unit_index < 0 or unit_index >= units.size():
+		return
+	var unit := units[unit_index]
+	if unit.has_method("take_damage"):
+		unit.call("take_damage", amount)
+
+## Demande d'appliquer des dégâts sur un bâtiment appartenant à un autre joueur.
+func request_building_damage(owner_peer: int, cell: Vector2i, amount: int) -> void:
+	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
+		return
+	_apply_building_damage.rpc_id(owner_peer, cell.x, cell.y, amount)
+
+## (Chez le propriétaire) applique des dégâts sur le bâtiment à la cellule.
+@rpc("any_peer", "reliable")
+func _apply_building_damage(cx: int, cy: int, amount: int) -> void:
+	if not Lobby.is_online:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if sender <= 1 or sender == Lobby.my_id:
+		return
+	var key := "%d:%d,%d" % [Lobby.my_id, cx, cy]
+	var b: Building = _building_from_key(key)
+	if b == null:
+		return
+	if b.has_method("take_damage"):
+		b.call("take_damage", amount)
+
+## Quand un joueur distant quitte, on supprime ses représentations (unités ET
+## bâtiments), pour ne pas laisser de fantômes dans notre monde.
+func _on_remote_player_disconnected(peer_id: int) -> void:
+	if _remote_rep.has(peer_id):
+		for rep in _remote_rep[peer_id]:
+			if is_instance_valid(rep):
+				rep.queue_free()
+		_remote_rep.erase(peer_id)
+	if _remote_building_root != null:
+		for key in _remote_buildings.keys():
+			if String(key).begins_with("%d:" % peer_id):
+				var b: Building = _remote_buildings[key]
+				if is_instance_valid(b):
+					b.queue_free()
+				_remote_buildings.erase(key)
+
+## Diffuse la construction/déplacement d'un bâtiment à tous les pairs, pour que
+## chacun voie le monde partagé se mettre à jour de façon cohérente.
+func _sync_building_change(owner_peer: int, btype: int, cell: Vector2i, lvl: int) -> void:
+	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
+		return
+	_sync_building_data.rpc(owner_peer, btype, cell.x, cell.y, lvl)
+
+## Un bâtiment local a changé (upgrade) : on diffuse le nouveau niveau partout,
+## pour que la copie distante (et donc le monde des autres) monte aussi de niveau.
+func _broadcast_building_upgrade(b: Building) -> void:
+	if b == null or not is_instance_valid(b):
+		return
+	_sync_building_change(Lobby.my_id, b.type, b.grid_cell, b.level)
+
+## Un bâtiment local est détruit (hp ≤ 0) : on diffuse sa suppression à tous les
+## pairs pour qu'ils retirent aussi leur copie (pas de fantôme chez les autres).
+func _on_building_removed(cell: Vector2i) -> void:
+	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
+		return
+	_sync_building_remove.rpc(Lobby.my_id, cell.x, cell.y)
+
+## Reçoit la destruction d'un bâtiment distant et retire la copie locale.
+@rpc("any_peer", "reliable", "call_local")
+func _sync_building_remove(owner_peer: int, cx: int, cy: int) -> void:
+	if owner_peer == Lobby.my_id:
+		return
+	var key := "%d:%d,%d" % [owner_peer, cx, cy]
+	if _remote_buildings.has(key):
+		var b: Building = _remote_buildings[key]
+		if is_instance_valid(b):
+			b.queue_free()
+		_remote_buildings.erase(key)
+		_schedule_rebake()
+
+## Reçoit une construction d'un pair distant et crée/actualise sa copie visuelle.
+@rpc("any_peer", "reliable", "call_local")
+func _sync_building_data(owner_peer: int, btype: int, cx: int, cy: int, lvl: int) -> void:
+	if owner_peer == Lobby.my_id:
+		return  # on ignore nos propres constructions (déjà en local)
+	var key := "%d:%d,%d" % [owner_peer, cx, cy]
+	_upsert_remote_building(owner_peer, btype, Vector2i(cx, cy), lvl, key)
+	_schedule_rebake()
+
+## Crée ou met à jour un bâtiment distant (copie non sélectionnable, non productive).
+func _upsert_remote_building(owner_peer: int, btype: int, cell: Vector2i, lvl: int, key: String) -> void:
+	var b: Building = _remote_buildings.get(key) as Building
+	if b != null:
+		b.type = btype as Building.Type
+		b.level = lvl
+		b.update_visual_for_sync()
+		b.grid_cell = cell
+		_center_remote_building(b, cell)
+		return
+	var nb := Building.new()
+	nb.type = btype as Building.Type
+	nb.level = lvl
+	nb.remote = true
+	nb.owner_peer = owner_peer
+	nb.relay = self
+	nb.add_to_group("enemy")  # attaquable par les autres joueurs
+	# Teinte la copie avec la couleur du propriétaire pour distinguer les camps.
+	nb.set_owner_tint(_player_color(owner_peer))
+	_remote_building_root.add_child(nb)
+	nb.grid_cell = cell
+	_center_remote_building(nb, cell)
+	_remote_buildings[key] = nb
+
+## Centre un bâtiment (distant ou non) sur sa cellule d'ancrage d'après son
+## empreinte, au même endroit que le bâtiment source chez le propriétaire.
+func _center_remote_building(b: Building, cell: Vector2i) -> void:
+	var f := b.footprint()
+	var center := cell + Vector2i(int(f / 2.0), int(f / 2.0))
+	b.global_position = _cell_center(center)
+
+## Retrouve un bâtiment local (chez nous) par sa cellule d'ancrage (clé distante).
+func _building_from_key(key: String) -> Building:
+	var parts := key.split(",")
+	if parts.size() != 2:
+		return null
+	var cell := Vector2i(int(parts[0]), int(parts[1]))
+	var b: Building = _occupancy.get(cell) as Building
+	return b
 
 func _refresh_population_cap() -> void:
 	var cap := 0
@@ -670,6 +1104,7 @@ func _confirm_ghost() -> void:
 		# Déplacement : on réutilise le bâtiment existant.
 		_remove_building_from_grid(_moving_building)
 		_place_building(_moving_building, anchor)
+		_sync_building_change(Lobby.my_id, _moving_building.type, anchor, _moving_building.level)
 		_moving_building = null
 	else:
 		# Construction : achat + placement.
@@ -684,6 +1119,7 @@ func _confirm_ghost() -> void:
 			var b := _instantiate_building(t)
 			_place_building(b, anchor)
 			_select_building(b)
+			_sync_building_change(Lobby.my_id, t, anchor, 1)
 		else:
 			_notify("Ressources insuffisantes !")
 			return
@@ -708,6 +1144,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_F2:
 			_spawn_test_player()
 			return
+		if event.keycode == KEY_F9:
+			# DEBUG : sélectionne la première unité (test UI mobile).
+			var units: Node3D = get_node_or_null("Units")
+			if units != null and units.get_child_count() > 0:
+				_select_single_from_node(units.get_child(0))
+			return
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
@@ -719,6 +1161,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				if _ghost_active():
 					_confirm_ghost()
+					return
+				# Ordre armé : le clic sert à exécuter l'ordre sur la cible visée
+				# (sol, ressource ou ennemi), comme sur tactile.
+				if _order_armed:
+					var m: int = _order_mode
+					_order_armed = false
+					_order_mode = OrderMode.NONE
+					if _order_hint != null:
+						_order_hint.visible = false
+					_refresh_order_button()
+					_dragging = false
+					_drag_selecting = false
+					_order_action(event.position, m)
 					return
 				_on_left_release(event.position)
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
@@ -748,9 +1203,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_touch_count = 0
 			if _tap_allowed:
 				if _order_armed:
+					var m: int = _order_mode
 					_order_armed = false
+					_order_mode = OrderMode.NONE
+					if _order_hint != null:
+						_order_hint.visible = false
 					_refresh_order_button()
-					_order_action(event.position)
+					_order_action(event.position, m)
 				elif _ghost_active():
 					_confirm_ghost()
 				else:
@@ -790,6 +1249,14 @@ func _spawn_test_player() -> void:
 			_hud_room_label.text = "Échec 2e joueur (err %d) — code : %s" % [err, code]
 
 # ============================================================ SÉLECTION
+
+## Sélectionne directement un nœud d'unité (utilisé par les tests et le debug).
+func _select_single_from_node(unit: Node) -> void:
+	if unit == null:
+		return
+	_deselect_all()
+	_selected_units.append(unit)
+	_update_selection_feedback()
 
 func _select_single(screen_pos: Vector2) -> void:
 	var hit := _raycast(screen_pos)
@@ -846,7 +1313,7 @@ func _select_building(b: Building) -> void:
 
 # ============================================================ ORDRES (clic droit)
 
-func _order_action(screen_pos: Vector2) -> void:
+func _order_action(screen_pos: Vector2, mode: int = OrderMode.NONE) -> void:
 	if _selected_units.is_empty():
 		return
 	var hit := _raycast(screen_pos)
@@ -857,6 +1324,10 @@ func _order_action(screen_pos: Vector2) -> void:
 	# Ressource à puiser.
 	var rn := _resource_at(node)
 	if rn != null:
+		# En mode GATHER explicite, on ignore les non-ressources ; en mode
+		# GATHER/auto on récolte la ressource ciblée.
+		if mode == OrderMode.ATTACK:
+			return
 		rn.flash_selected()
 		for u in _selected_units:
 			if u is Villager:
@@ -866,12 +1337,17 @@ func _order_action(screen_pos: Vector2) -> void:
 	# Ennemi à attaquer.
 	var enemy := _ancestor_in_group(node, "enemy")
 	if enemy != null:
+		if mode == OrderMode.GATHER:
+			return
 		for u in _selected_units:
 			if u.has_method("attack_target"):
 				u.attack_target(enemy as Node3D)
 		return
 
 	# Sol : déplacement (paysan -> aller sur place puis au repos ; soldat -> déplacement).
+	if mode == OrderMode.GATHER:
+		_notify("Touchez une ressource à récolter.")
+		return
 	var ground := _ground_point(screen_pos)
 	if ground.has("pos"):
 		for u in _selected_units:
@@ -970,6 +1446,18 @@ func _setup_hud() -> void:
 	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	panel.offset_left = 12.0
 	panel.offset_top = 12.0
+	# Fond sombre semi-transparent pour une lisibilité sur mobile
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0, 0, 0, 0.55)
+	bg.corner_radius_top_left = 8
+	bg.corner_radius_top_right = 8
+	bg.corner_radius_bottom_left = 8
+	bg.corner_radius_bottom_right = 8
+	bg.content_margin_left = 10
+	bg.content_margin_top = 6
+	bg.content_margin_right = 10
+	bg.content_margin_bottom = 6
+	panel.add_theme_stylebox_override("panel", bg)
 	layer.add_child(panel)
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 12)
@@ -978,7 +1466,9 @@ func _setup_hud() -> void:
 	margin.add_theme_constant_override("margin_bottom", 8)
 	panel.add_child(margin)
 	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 2)
 	margin.add_child(vb)
+	var fs: int = int(16 * _ui_scale)
 	_hud_gold_label = Label.new()
 	_hud_wood_label = Label.new()
 	_hud_stone_label = Label.new()
@@ -988,14 +1478,12 @@ func _setup_hud() -> void:
 	_hud_soldiers_label = Label.new()
 	_hud_room_label = Label.new()
 	_hud_room_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
-	vb.add_child(_hud_gold_label)
-	vb.add_child(_hud_wood_label)
-	vb.add_child(_hud_stone_label)
-	vb.add_child(_hud_food_label)
-	vb.add_child(_hud_pop_label)
-	vb.add_child(_hud_workers_label)
-	vb.add_child(_hud_soldiers_label)
-	vb.add_child(_hud_room_label)
+	for l in [_hud_gold_label, _hud_wood_label, _hud_stone_label, _hud_food_label,
+			_hud_pop_label, _hud_workers_label, _hud_soldiers_label, _hud_room_label]:
+		l.add_theme_font_size_override("font_size", fs)
+		# Couleur claire pour la lisibilité sur fond sombre
+		l.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+		vb.add_child(l)
 	var room_code := Lobby.room_id if Lobby.has_base and Lobby.is_online else "hors ligne"
 	_hud_room_label.text = "Partie : %s" % room_code
 	var rm := get_node("/root/ResourceManager")
@@ -1045,37 +1533,139 @@ func _setup_order_button() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 42
 	add_child(layer)
-	_order_btn = Button.new()
-	_order_btn.text = "📋 Ordre"
-	_order_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_order_btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_order_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_order_btn.offset_left = -150.0
-	_order_btn.offset_top = -70.0
-	_order_btn.offset_right = -16.0
-	_order_btn.offset_bottom = -16.0
-	_order_btn.custom_minimum_size = Vector2(134, 54)
-	_order_btn.visible = false
-	_order_btn.pressed.connect(_arm_order)
-	layer.add_child(_order_btn)
+	
+	# Barre horizontale en bas de l'écran, remontée au-dessus de la barre de
+	# construction (qui occupe le bas-gauche) pour éviter tout chevauchement.
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	# Remonte au-dessus de la barre de construction (hauteur ~70px) + marge.
+	panel.offset_top = -150.0 * _ui_scale
+	panel.offset_bottom = -92.0 * _ui_scale
+	panel.custom_minimum_size = Vector2(0, 56 * _ui_scale)
+	panel.visible = false
+	panel.name = "OrderPanel"
+	# Fond sombre quasi opaque pour bien la mettre en évidence
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0, 0, 0, 0.8)
+	bg.corner_radius_top_left = 10
+	bg.corner_radius_top_right = 10
+	bg.corner_radius_bottom_left = 10
+	bg.corner_radius_bottom_right = 10
+	bg.border_color = Color(1, 1, 1, 0.25)
+	bg.set_border_width_all(2)
+	panel.add_theme_stylebox_override("panel", bg)
+	layer.add_child(panel)
+	
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	panel.add_child(margin)
+	
+	var hb := HBoxContainer.new()
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	margin.add_child(hb)
+	_order_bar = hb
+	
+	# Label d'aide : affiche l'instruction en cours (ex. "Touchez un sol").
+	_order_hint = Label.new()
+	_order_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_order_hint.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+	_order_hint.add_theme_color_override("font_color", Color(1, 0.85, 0.3))
+	_order_hint.visible = false
+	# L'affiche juste au-dessus de la barre d'ordre.
+	_order_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_order_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_order_hint.offset_top = -172.0 * _ui_scale
+	_order_hint.offset_bottom = -150.0 * _ui_scale
+	layer.add_child(_order_hint)
+	
+	# Boutons d'ordre
+	var actions := [
+		[OrderMode.MOVE, "🏃 Déplacer"],
+		[OrderMode.GATHER, "⛏️ Récolter"],
+		[OrderMode.ATTACK, "⚔️ Attaquer"],
+	]
+	for a in actions:
+		var btn := Button.new()
+		btn.text = a[1]
+		btn.custom_minimum_size = Vector2(110 * _ui_scale, 46 * _ui_scale)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+		btn.pressed.connect(_arm_order.bind(a[0]))
+		hb.add_child(btn)
+		_order_btns[a[0]] = btn
+	
+	# Bouton Stop / Désélectionner (toujours utile)
+	var stop_btn := Button.new()
+	stop_btn.text = "🛑 Stop"
+	stop_btn.custom_minimum_size = Vector2(90 * _ui_scale, 46 * _ui_scale)
+	stop_btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	stop_btn.pressed.connect(_cancel_selection)
+	hb.add_child(stop_btn)
 
-## Arme l'ordre : le prochain tap donnera l'ordre aux unités sélectionnées.
-func _arm_order() -> void:
+## Annule la sélection en cours (les unités retournent à leur tâche auto).
+func _cancel_selection() -> void:
+	_deselect_all()
+	_notify("Sélection annulée.")
+
+## Arme l'ordre : le prochain tap sur le monde exécutera cet ordre.
+func _arm_order(mode: int) -> void:
 	if _selected_units.is_empty():
 		return
+	_order_mode = mode
 	_order_armed = true
-	_order_btn.text = "Touchez une cible"
-	_notify("Choisissez une cible : sol, ressource ou ennemi.")
+	var hint := ""
+	match mode:
+		OrderMode.MOVE: hint = "Touchez un endroit du sol"
+		OrderMode.GATHER: hint = "Touchez une ressource (or/bois/pierre)"
+		OrderMode.ATTACK: hint = "Touchez un ennemi"
+	_notify(hint)
+	if _order_hint != null:
+		_order_hint.text = "👉 " + hint
+		_order_hint.visible = true
+	_highlight_order_buttons()
 
-## Affiche/masque le bouton d'ordre selon qu'il y a une sélection d'unités.
+func _highlight_order_buttons() -> void:
+	for m in _order_btns:
+		var btn := _order_btns[m] as Button
+		if btn == null:
+			continue
+		var is_active: bool = _order_armed and _order_mode == m
+		# Fond orange bien visible sur le bouton armé
+		var bg := StyleBoxFlat.new()
+		if is_active:
+			bg.bg_color = Color(0.95, 0.55, 0.1, 0.95)
+			bg.corner_radius_top_left = 6
+			bg.corner_radius_top_right = 6
+			bg.corner_radius_bottom_left = 6
+			bg.corner_radius_bottom_right = 6
+		else:
+			bg.bg_color = Color(0.15, 0.15, 0.18, 0.95)
+			bg.corner_radius_top_left = 6
+			bg.corner_radius_top_right = 6
+			bg.corner_radius_bottom_left = 6
+			bg.corner_radius_bottom_right = 6
+		btn.add_theme_stylebox_override("normal", bg)
+		btn.add_theme_stylebox_override("hover", bg)
+		btn.add_theme_stylebox_override("pressed", bg)
+
+## Affiche/masque la barre d'ordre selon la sélection.
 func _refresh_order_button() -> void:
 	var has_units := not _selected_units.is_empty()
-	if _order_btn != null:
-		_order_btn.visible = has_units
+	if _order_bar != null:
+		var panel := _order_bar.get_parent().get_parent() as PanelContainer
+		if panel != null:
+			panel.visible = has_units
 	if not has_units:
 		_order_armed = false
-		if _order_btn != null:
-			_order_btn.text = "📋 Ordre"
+		_order_mode = OrderMode.NONE
+		if _order_hint != null:
+			_order_hint.visible = false
+		_highlight_order_buttons()
 
 # ============================================================ UI : CONSTRUCTION
 
@@ -1115,7 +1705,8 @@ func _setup_build_ui() -> void:
 		if cfg.has("cost_stone"):
 			tooltip += ", %d pierre" % cfg["cost_stone"]
 		btn.tooltip_text = tooltip
-		btn.custom_minimum_size = Vector2(120, 56)
+		btn.custom_minimum_size = Vector2(120 * _ui_scale, 56 * _ui_scale)
+		btn.add_theme_font_size_override("font_size", int(15 * _ui_scale))
 		btn.pressed.connect(_on_build_button_pressed.bind(t))
 		hb.add_child(btn)
 		_build_buttons[t] = btn
@@ -1179,20 +1770,32 @@ func _setup_building_panel() -> void:
 	vb.add_child(_building_title)
 	_building_info = Label.new()
 	vb.add_child(_building_info)
+	for l in [_building_title, _building_info]:
+		l.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+		l.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	
 	_upgrade_button = Button.new()
 	_upgrade_button.text = "Améliorer"
+	_upgrade_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	_upgrade_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
 	_upgrade_button.pressed.connect(_on_upgrade_pressed)
 	vb.add_child(_upgrade_button)
 	_recruit_button = Button.new()
 	_recruit_button.text = "Recruter un paysan"
+	_recruit_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	_recruit_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
 	_recruit_button.pressed.connect(_on_recruit_pressed)
 	vb.add_child(_recruit_button)
 	_train_button = Button.new()
 	_train_button.text = "Entraîner un soldat"
+	_train_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	_train_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
 	_train_button.pressed.connect(_on_train_pressed)
 	vb.add_child(_train_button)
 	_move_button = Button.new()
 	_move_button.text = "Déplacer"
+	_move_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	_move_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
 	_move_button.pressed.connect(_on_move_pressed)
 	vb.add_child(_move_button)
 	_building_panel.visible = false
