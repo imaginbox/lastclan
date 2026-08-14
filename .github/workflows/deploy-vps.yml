@@ -1,0 +1,29 @@
+name: Deploy to VPS
+
+# Met à jour AUTOMATIQUEMENT le serveur WebSocket sur le VPS (git pull +
+# restart) à chaque push sur main. Plus aucune manipulation manuelle.
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy-vps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Mettre à jour le serveur sur le VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            cd /srv/lastclan
+            git fetch origin main
+            git reset --hard origin/main
+            systemctl restart lastclan-server
+            echo "Serveur redéployé et redémarré"
