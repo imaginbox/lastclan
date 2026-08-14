@@ -86,7 +86,10 @@ var players: Dictionary = {}
 var room_id: String = "global"
 
 ## Délai max (s) avant de déclarer la connexion en échec si elle reste en attente.
-const CONNECT_TIMEOUT: float = 8.0
+## Voir au-dessus : le relais Ziva est en ligne mais notre réseau instable fait
+## parfois dépasser 8s au handshake WebSocket → on laisse une marge confortable
+## pour éviter de déclarer « hors ligne » à tort.
+const CONNECT_TIMEOUT: float = 15.0
 
 var _connect_timer: SceneTreeTimer = null
 var _retry_count: int = 0
