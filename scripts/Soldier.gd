@@ -97,7 +97,7 @@ func set_selected(on: bool) -> void:
 ## la plus proche (via la position de l'attaquant). S'il n'y a plus d'ennemi à
 ## portée notable, il retourne au repos. Déclenché depuis main.gd (côté défenseur).
 func react_to_attack(attacker_pos: Vector3) -> void:
-	var closest: Node3D = _nearest_enemy()
+	var closest: Node3D = _nearest_enemy(attacker_pos)
 	if closest != null:
 		attack_target(closest)
 	else:
@@ -105,15 +105,21 @@ func react_to_attack(attacker_pos: Vector3) -> void:
 		_target = null
 		_state = State.IDLE
 
-## Cherche l'unité ennemie (groupe "enemy") la plus proche de ce soldat.
-func _nearest_enemy() -> Node3D:
+## Cherche l'unité ennemie (groupe "enemy") la plus proche de ce soldat, en
+## privilégiant celle la plus proche de l'ATTAQUANT (pour bien riposter celui
+## qui nous a frappé).
+func _nearest_enemy(attacker_pos: Vector3 = Vector3.ZERO) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = INF
 	for node in get_tree().get_nodes_in_group("enemy"):
 		if node is Node3D:
-			var d: float = global_position.distance_squared_to((node as Node3D).global_position)
-			if d < best_d:
-				best_d = d
+			var to_att := INF
+			if attacker_pos != Vector3.ZERO:
+				to_att = (node as Node3D).global_position.distance_squared_to(attacker_pos)
+			else:
+				to_att = global_position.distance_squared_to((node as Node3D).global_position)
+			if to_att < best_d:
+				best_d = to_att
 				best = node as Node3D
 	return best
 

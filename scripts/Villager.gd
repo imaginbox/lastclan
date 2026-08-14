@@ -317,13 +317,8 @@ func _return_to_townhall(delta: float) -> void:
 	if _town_hall == null:
 		_select_next_task()
 		return
-	# Filet anti-blocage : si le paysan n'arrive plus à l'hôtel de ville, on livre
-	# quand même (le dépôt touche l'économie) pour ne pas rester bloqué à courir.
-	if _stuck_check(delta):
-		_deliver_city()
-		return
-	# Dépôt effectué dès que le paysan est assez près de l'hôtel de ville.
-	# Distance très souple (4.5) pour éviter que les paysans ne courent contre les murs.
+	# Dépôt effectué dès que le paysan est RÉELLEMENT près de l'hôtel de ville.
+	# Distance souple pour éviter que les paysans ne courent contre les murs.
 	if _town_hall != null and _hdist(_town_hall.global_position) <= DELIVER_DISTANCE:
 		_deliver_city()
 		return
@@ -333,6 +328,15 @@ func _return_to_townhall(delta: float) -> void:
 			if get_slide_collision(i).get_collider() == _town_hall:
 				_deliver_city()
 				return
+	# Filet anti-blocage : si le paysan n'avance plus vers l'hôtel de ville, on
+	# RE-ROUTE la navigation (le paysan doit faire TOUT le chemin). On NE livre
+	# PAS à distance : dépôt à mi-chemin = on ne crédite pas l'économie correctement.
+	if _stuck_check(delta):
+		if _hdist(_town_hall.global_position) <= DELIVER_DISTANCE * 1.5:
+			_deliver_city()
+			return
+		_step(delta)
+		return
 	_step(delta)
 
 ## Dépôt effectif de la charge à l'hôtel de ville : crédite l'économie de la ville
