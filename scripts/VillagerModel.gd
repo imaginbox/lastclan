@@ -32,11 +32,9 @@ func _build() -> void:
 		return
 	_model = base.instantiate()
 	_model.name = "Model"
-	# AJUSTEMENT FINAL : 0.75m.
-	# On baisse de 5cm par rapport au calcul théorique pour s'assurer
-	# que les pieds s'enfoncent un peu dans le sol (l'herbe).
-	# Cela garantit que l'ombre est parfaitement rattachée aux pieds.
-	_model.position.y = 0.75
+	# Les pieds touchent le sol (0.0 = la racine du personnage est au niveau
+	# des pieds, qui reposent sur le sol / le cercle au sol).
+	_model.position.y = 0.0
 	add_child(_model)
 	_apply_tint()
 	_anim_player = _model.get_node_or_null("AnimationPlayer") as AnimationPlayer

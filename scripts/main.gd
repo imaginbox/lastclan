@@ -914,8 +914,7 @@ func _make_ground_circle(col: Color) -> MeshInstance3D:
 	cm.bottom_radius = 0.35
 	cm.height = 0.01
 	mesh.mesh = cm
-	mesh.position = Vector3(0, 0.03, 0)
-	mesh.rotation_degrees = Vector3(90, 0, 0)
+	mesh.position = Vector3(0, 0.05, 0)
 	return mesh
 
 ## Barre de vie 3D au-dessus d'une unité (billboard, cachée par défaut).
@@ -1003,12 +1002,26 @@ func _make_remote_unit(owner_id: int, index: int, kind: int) -> RemoteUnit:
 	else:  # paysan → couleur du joueur
 		model.tint = _player_color(owner_id)
 	root.add_child(model)
+	# Corps de collision : rend l'unité distante cliquable/ciblable au raycast
+	# (sinon l'ennemi est invisible pour la sélection d'attaque -> on ne peut
+	# jamais l'attaquer). StaticBody = corps d'ancrage simple, sans physique.
+	var body := StaticBody3D.new()
+	body.name = "Body"
+	var cs := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.35
+	cap.height = 1.6
+	cs.shape = cap
+	cs.position = Vector3(0, 0.8, 0)
+	body.add_child(cs)
+	body.collision_layer = 2   # couche "unités"
+	body.collision_mask = 0
+	root.add_child(body)
 	# Cercle rouge au sol (ennemi)
 	root.add_child(_make_ground_circle(Color.RED))
 	# Barre de vie (cachée, apparaît en combat)
 	root.add_child(_make_health_bar_node())
 	return root
-
 ## Couleur stable associée à un peer (pour distinguer les joueurs).
 func _player_color(peer_id: int) -> Color:
 	return REMOTE_UNIT_COLORS[abs(peer_id) % REMOTE_UNIT_COLORS.size()]
@@ -1454,6 +1467,8 @@ func _order_action(screen_pos: Vector2, mode: int = OrderMode.NONE) -> void:
 		for u in _selected_units:
 			if u.has_method("attack_target"):
 				u.attack_target(enemy as Node3D)
+			elif u.has_method("attack_node"):
+				u.attack_node(enemy as Node3D)
 		return
 
 	# Sol : déplacement (paysan -> aller sur place puis au repos ; soldat -> déplacement).
