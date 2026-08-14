@@ -512,8 +512,19 @@ func _build_server_list(container: VBoxContainer) -> void:
 		container.add_child(b)
 
 ## Action : rejoint le serveur choisi et lance la partie.
+## - transport "ziva" : royaume officiel sur le RELAIS Ziva — on rejoint la room
+##   directement (tous les peers passent par le relais, aucun port à ouvrir).
+## - transport "enet"/"ws" : serveur auto-hébergé (IP/domaine:port).
 func _on_server_pressed(transport: String, address: String, room: String = "") -> void:
 	_apply_name()
+	if transport == "ziva":
+		if room.is_empty():
+			_on_status("Ce royaume n'a pas de room configurée.")
+			return
+		_on_status("Connexion au royaume « %s » (relais officiel)…" % room)
+		_auto_launch = true
+		Lobby.join_room(room)
+		return
 	if address.is_empty():
 		_on_status("Ce serveur n'a pas d'adresse configurée.")
 		return

@@ -715,10 +715,10 @@ func _place_building(b: Building, anchor: Vector2i) -> void:
 	# Centre le bâtiment sur le centre de son empreinte.
 	var center := anchor + Vector2i(int(f / 2.0), int(f / 2.0))
 	b.global_position = _cell_center(center)
-	b.unit_requested.connect(_on_unit_requested)
+	b.unit_requested.connect(_on_unit_requested, CONNECT_REFERENCE_COUNTED)
 	b.building_changed.connect(_refresh_building_panel)
-	b.building_changed.connect(_broadcast_building_upgrade.bind(b))
-	b.removed.connect(_on_building_removed)
+	b.building_changed.connect(_broadcast_building_upgrade.bind(b), CONNECT_REFERENCE_COUNTED)
+	b.removed.connect(_on_building_removed, CONNECT_REFERENCE_COUNTED)
 	_refresh_population_cap()
 	_refresh_building_panel()
 	_schedule_rebake()  # le nouveau bâtiment découpe le navmesh (contournement)

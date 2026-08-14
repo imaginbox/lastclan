@@ -2,25 +2,25 @@
   "servers": [
     {
       "name": "Royaume Alpha",
-      "subtitle": "Serveur officiel — Saison 1 (PC)",
-      "transport": "enet",
-      "address": "lastclan.imaginbox.fr:7934",
+      "subtitle": "Serveur officiel — Saison 1 (relais)",
+      "transport": "ziva",
+      "address": "",
       "room": "royaume-alpha",
       "official": true
     },
     {
       "name": "Royaume Beta",
-      "subtitle": "Serveur officiel — Saison 2 (PC)",
-      "transport": "enet",
-      "address": "lastclan.imaginbox.fr:7935",
+      "subtitle": "Serveur officiel — Saison 2 (relais)",
+      "transport": "ziva",
+      "address": "",
       "room": "royaume-beta",
       "official": true
     },
     {
       "name": "Royaume Web",
-      "subtitle": "Navigateur / mobile (itch.io) — wss",
-      "transport": "ws",
-      "address": "wss://lastclan.imaginbox.fr:7938",
+      "subtitle": "Navigateur / mobile — relais officiel",
+      "transport": "ziva",
+      "address": "",
       "room": "royaume-web",
       "official": true
     }
