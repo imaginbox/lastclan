@@ -98,6 +98,10 @@ var _sync_timer: Timer = null
 var _remote_buildings: Dictionary = {}
 var _remote_building_root: Node3D = null
 const UNIT_SYNC_INTERVAL: float = 0.15  # ~6,6 envois/s
+## Fenêtre (ms) pendant laquelle la barre de vie reste affichée après la dernière
+## attaque subie. Dès qu'il n'y a plus d'attaques, la barre disparaît au bout de
+## HEALTH_BAR_VISIBLE_MS sans nouveau dégât.
+const HEALTH_BAR_VISIBLE_MS: int = 3500
 
 ## Graine avec laquelle le monde a été construit. Sert à détecter un changement
 ## de seed en cours de route (ex. _sync_room du serveur qui arrive après le build)
@@ -889,7 +893,7 @@ func _update_remote_units(owner_id: int, states: Array) -> void:
 		var maxh: float = st[2]
 		var hb := rep.get_node_or_null("HealthBar") as Node3D
 		if hb != null:
-			_update_health_bar(hb, hpv, maxh)
+			_update_health_bar(hb, hpv, maxh, rep.last_damage_ms)
 	# Masque les représentations surnuméraires.
 	for i in range(states.size(), reps.size()):
 		reps[i].visible = false
@@ -983,12 +987,14 @@ func _make_health_bar_node() -> Node3D:
 	container.name = "HealthBar"
 	return container
 
-## Met à jour la barre de vie : affichée uniquement si PV < max (combat/dégâts).
+## Met à jour la barre de vie : affichée uniquement si PV < max ET si l'unité a
+## été frappée récemment (elle disparaît dès qu'il n'y a plus d'attaques).
 ## Met aussi à jour le NOMBRE de PV (« 34/100 ») qui descend quand l'unité perd
 ## de la vie, visible au-dessus de la barre.
-func _update_health_bar(container: Node3D, hp: float, max_hp: float) -> void:
+func _update_health_bar(container: Node3D, hp: float, max_hp: float, last_damage_ms: int = -100000) -> void:
 	var ratio := clampf(hp / max_hp if max_hp > 0 else 0.0, 0.0, 1.0)
-	container.visible = ratio < 0.99
+	var recently_hit := Time.get_ticks_msec() - last_damage_ms < HEALTH_BAR_VISIBLE_MS
+	container.visible = ratio < 0.99 and recently_hit
 	var fill: MeshInstance3D = container.get_meta("bar_fill", null) as MeshInstance3D
 	if fill == null:
 		return
@@ -1019,7 +1025,8 @@ func _update_all_local_health_bars() -> void:
 			if hb != null:
 				var hp: float = float(child.get("hp")) if child.get("hp") != null else 100.0
 				var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
-				_update_health_bar(hb, hp, mh)
+				var ld: int = int(child.get("last_damage_ms")) if child.get("last_damage_ms") != null else -100000
+				_update_health_bar(hb, hp, mh, ld)
 
 ## Crée une unité distante avec le VRAI modèle (paysan/soldat) + cercle rouge + barre de vie.
 func _make_remote_unit(owner_id: int, index: int, kind: int) -> RemoteUnit:
@@ -1073,16 +1080,16 @@ func _mp_log(msg: String) -> void:
 ## Envoyé par un attaquant au propriétaire (modèle : le propriétaire fait
 ## autorité sur sa propre unité). Le propriétaire applique puis la synchro
 ## périodique diffuse l'état actualisé à tous.
-func request_unit_damage(owner_peer: int, unit_index: int, amount: int) -> void:
+func request_unit_damage(owner_peer: int, unit_index: int, amount: int, attacker_pos: Vector3 = Vector3.ZERO) -> void:
 	if not Lobby.is_online or multiplayer.multiplayer_peer == null:
 		return
 	# Le propriétaire est l'unique autorité : on cible spécifiquement son pair.
-	_apply_unit_damage.rpc_id(owner_peer, unit_index, amount)
+	_apply_unit_damage.rpc_id(owner_peer, unit_index, amount, attacker_pos)
 
 ## (Chez le propriétaire) applique des dégâts sur l'unité indexée, en vérifiant
 ## que l'émetteur est bien un des autres joueurs (anti-triche minimal).
 @rpc("any_peer", "reliable")
-func _apply_unit_damage(unit_index: int, amount: int) -> void:
+func _apply_unit_damage(unit_index: int, amount: int, attacker_pos: Vector3 = Vector3.ZERO) -> void:
 	if not Lobby.is_online:
 		return
 	var sender: int = multiplayer.get_remote_sender_id()
@@ -1093,9 +1100,10 @@ func _apply_unit_damage(unit_index: int, amount: int) -> void:
 		return
 	var unit := units[unit_index]
 	if unit.has_method("take_damage"):
-		unit.call("take_damage", amount)
+		unit.call("take_damage", amount, attacker_pos)
 		# Côté défenseur : nombre de dégâts rouge visible au-dessus de l'unité touchée.
 		show_damage_float(unit.global_position, amount)
+		# NB : la défense auto (contre-attaque/fuite) est déclenchée dans take_damage.
 
 ## Demande d'appliquer des dégâts sur un bâtiment appartenant à un autre joueur.
 func request_building_damage(owner_peer: int, cell: Vector2i, amount: int) -> void:
@@ -1478,45 +1486,132 @@ func _select_building(b: Building) -> void:
 func _order_action(screen_pos: Vector2, mode: int = OrderMode.NONE) -> void:
 	if _selected_units.is_empty():
 		return
+
+	# MODES EXPLICITES : quand on a choisi un mode puis qu'on tape sur le monde,
+	# le groupe exécute DIRECTEMENT ce mode à cet endroit (pas de détection
+	# "intelligente" ambigüe). Le clic droit (mode NONE) garde l'auto-détection.
+	match mode:
+		OrderMode.MOVE:
+			_execute_move_order(screen_pos)
+			return
+		OrderMode.GATHER:
+			_execute_gather_order(screen_pos)
+			return
+		OrderMode.ATTACK:
+			_execute_attack_order(screen_pos)
+			return
+
+	# --- MODE AUTO (mode == NONE) : clic droit ---
 	var hit := _raycast(screen_pos)
 	if hit.is_empty():
 		return
 	var node: Node = hit["collider"] as Node
-
 	# Ressource à puiser.
 	var rn := _resource_at(node)
 	if rn != null:
-		# En mode GATHER explicite, on ignore les non-ressources ; en mode
-		# GATHER/auto on récolte la ressource ciblée.
-		if mode == OrderMode.ATTACK:
-			return
 		rn.flash_selected()
 		for u in _selected_units:
 			if u is Villager:
 				u.send_to_gather(rn)
 		return
-
 	# Ennemi à attaquer.
 	var enemy := _ancestor_in_group(node, "enemy")
 	if enemy != null:
-		if mode == OrderMode.GATHER:
-			return
 		for u in _selected_units:
 			if u.has_method("attack_target"):
 				u.attack_target(enemy as Node3D)
 			elif u.has_method("attack_node"):
 				u.attack_node(enemy as Node3D)
 		return
-
-	# Sol : déplacement (paysan -> aller sur place puis au repos ; soldat -> déplacement).
-	if mode == OrderMode.GATHER:
-		_notify("Touchez une ressource à récolter.")
-		return
+	# Sol : déplacement.
 	var ground := _ground_point(screen_pos)
 	if ground.has("pos"):
 		for u in _selected_units:
 			if u.has_method("move_to_point"):
 				u.move_to_point(ground["pos"])
+
+## MODE DÉPLACEMENT : le groupe se rend au point cliqué, quoi qu'il y ait dessus
+## (ressource, ennemi, décor). On ne récolte/attaque pas.
+func _execute_move_order(screen_pos: Vector2) -> void:
+	var ground := _ground_point(screen_pos)
+	if not ground.has("pos"):
+		return
+	for u in _selected_units:
+		if u.has_method("move_to_point"):
+			u.move_to_point(ground["pos"])
+
+## MODE RÉCOLTE : le groupe récolte la ressource au point cliqué ; sinon la
+## ressource la plus proche de ce point. Soldats sélectionnés : ignorés.
+func _execute_gather_order(screen_pos: Vector2) -> void:
+	var hit := _raycast(screen_pos)
+	var rn: ResourceNode = null
+	if not hit.is_empty():
+		rn = _resource_at(hit["collider"] as Node)
+	if rn == null:
+		# Aucune ressource exacte sous le curseur : on prend la plus proche du point.
+		rn = _nearest_resource_to(screen_pos)
+	if rn == null or not rn.has_left():
+		_notify("Touchez une ressource à récolter.")
+		return
+	rn.flash_selected()
+	var got_villager := false
+	for u in _selected_units:
+		if u is Villager:
+			u.send_to_gather(rn)
+			got_villager = true
+	if not got_villager:
+		_notify("Sélectionnez un paysan pour récolter.")
+
+## MODE ATTAQUE : le groupe attaque l'ennemi au point cliqué ; sinon l'ennemi
+## le plus proche de ce point.
+func _execute_attack_order(screen_pos: Vector2) -> void:
+	var hit := _raycast(screen_pos)
+	var enemy: Node3D = null
+	if not hit.is_empty():
+		enemy = _ancestor_in_group(hit["collider"] as Node, "enemy") as Node3D
+	if enemy == null:
+		enemy = _nearest_enemy_to(screen_pos)
+	if enemy == null:
+		_notify("Touchez un ennemi à attaquer.")
+		return
+	for u in _selected_units:
+		if u.has_method("attack_target"):
+			u.attack_target(enemy)
+		elif u.has_method("attack_node"):
+			u.attack_node(enemy)
+
+## Ressource la plus proche du point de l'écran (projection rayon -> plan sol).
+func _nearest_resource_to(screen_pos: Vector2) -> ResourceNode:
+	var ground := _ground_point(screen_pos)
+	if not ground.has("pos"):
+		return null
+	var p: Vector3 = ground["pos"]
+	var best: ResourceNode = null
+	var best_d := INF
+	for node in get_tree().get_nodes_in_group("resource"):
+		var r := node as ResourceNode
+		if r != null and r.has_left():
+			var d := p.distance_squared_to(r.global_position)
+			if d < best_d:
+				best_d = d
+				best = r
+	return best
+
+## Ennemi (groupe "enemy") le plus proche du point de l'écran.
+func _nearest_enemy_to(screen_pos: Vector2) -> Node3D:
+	var ground := _ground_point(screen_pos)
+	if not ground.has("pos"):
+		return null
+	var p: Vector3 = ground["pos"]
+	var best: Node3D = null
+	var best_d := INF
+	for node in get_tree().get_nodes_in_group("enemy"):
+		if node is Node3D:
+			var d := p.distance_squared_to((node as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = node as Node3D
+	return best
 
 func _ground_point(screen_pos: Vector2) -> Dictionary:
 	var from := _camera.project_ray_origin(screen_pos)

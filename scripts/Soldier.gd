@@ -25,6 +25,9 @@ const VILLAGE_HALF: float = 190.0
 var hp: int = 80
 var max_hp: int = 80
 signal died
+## Horodatage (ms) de la dernière fois que l'unité a reçu des dégâts. La barre
+## ne s'affiche que si une frappe a eu lieu récemment (disparaît sans attaques).
+var last_damage_ms: int = -100000
 
 var _state: State = State.IDLE
 var _move_point: Vector3 = Vector3.ZERO
@@ -90,6 +93,30 @@ func set_selected(on: bool) -> void:
 			and _is_sel_material(mesh.material_override):
 		mesh.material_override = null
 
+## DÉFENSE AUTO : quand le soldat est attaqué, il CONTRE-ATTAQUE l'unité ennemie
+## la plus proche (via la position de l'attaquant). S'il n'y a plus d'ennemi à
+## portée notable, il retourne au repos. Déclenché depuis main.gd (côté défenseur).
+func react_to_attack(attacker_pos: Vector3) -> void:
+	var closest: Node3D = _nearest_enemy()
+	if closest != null:
+		attack_target(closest)
+	else:
+		# Plus d'ennemi visible : retour au repos.
+		_target = null
+		_state = State.IDLE
+
+## Cherche l'unité ennemie (groupe "enemy") la plus proche de ce soldat.
+func _nearest_enemy() -> Node3D:
+	var best: Node3D = null
+	var best_d: float = INF
+	for node in get_tree().get_nodes_in_group("enemy"):
+		if node is Node3D:
+			var d: float = global_position.distance_squared_to((node as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = node as Node3D
+	return best
+
 ## --- Logique ---
 func _move(delta: float) -> void:
 	if _target != null and is_instance_valid(_target):
@@ -111,7 +138,7 @@ func _attack(_delta: float) -> void:
 		_state = State.MOVE
 		return
 	if _attack_cd <= 0.0 and _target.has_method("take_damage"):
-		_target.call("take_damage", ATTACK_DAMAGE)
+		_target.call("take_damage", ATTACK_DAMAGE, self.global_position)
 		_attack_cd = ATTACK_COOLDOWN
 
 func _step(_delta: float) -> void:
@@ -154,8 +181,11 @@ func _is_sel_material(mat: Material) -> bool:
 
 ## --- Santé / Combat PvP ---
 ## Reçoit des dégâts d'une unité adverse. Meurt quand la santé tombe à 0.
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, attacker_pos: Vector3 = Vector3.ZERO) -> void:
 	hp -= amount
+	last_damage_ms = Time.get_ticks_msec()
+	# Défense auto : le soldat contre-attaque l'ennemi le plus proche.
+	react_to_attack(attacker_pos)
 	if hp <= 0:
 		die()
 

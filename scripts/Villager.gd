@@ -56,6 +56,10 @@ const MAX_CARRIED: int = 15
 var hp: int = 60
 var max_hp: int = 60
 signal died
+## Horodatage (ms) de la dernière fois que l'unité a reçu des dégâts. La barre
+## de vie ne s'affiche que si une frappe a eu lieu récemment (elle disparaît dès
+## qu'il n'y a plus d'attaques). Mis à jour dans take_damage.
+var last_damage_ms: int = -100000
 
 var _state: State = State.IDLE
 var _assigned_resource: ResourceNode = null   # ressource qu'il doit exploiter (boucle)
@@ -69,6 +73,8 @@ var _town_hall: Node3D = null
 var _stuck_t: float = 0.0
 var _last_dist: float = INF
 var _watch_armed: bool = false
+# --- Fuite (défense auto) : vrai tant que le paysan court vers son point de fuite ---
+var _flee_active: bool = false
 # --- Suivi d'animation (lissage Course/Idle basé sur le déplacement réel) ---
 var _anim_prev_pos: Vector3 = Vector3.ZERO
 var _anim_moving_buf: float = 0.0
@@ -181,6 +187,27 @@ func move_to_point(point: Vector3) -> void:
 	_assigned_attack = null
 	nav_agent.target_position = point
 	_arm_watch()
+	set_state(State.MOVING)
+
+## DÉFENSE AUTO : quand le paysan est attaqué, il FUITE (il n'est pas une unité
+## de combat). Il s'éloigne de l'attaquant d'une certaine distance puis retourne
+## à sa tâche automatique de récolte. Déclenché depuis main.gd (côté défenseur).
+func react_to_attack(attacker_pos: Vector3) -> void:
+	var away: Vector3 = global_position - attacker_pos
+	away.y = 0.0
+	if away.length_squared() < 0.001:
+		away = Vector3(randf_range(-1, 1), 0.0, randf_range(-1, 1))
+	away = away.normalized()
+	var flee_dist: float = 10.0
+	var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
+	var dest: Vector3 = global_position + away * flee_dist
+	dest.x = clampf(dest.x, base.x - VILLAGE_HALF, base.x + VILLAGE_HALF)
+	dest.z = clampf(dest.z, base.z - VILLAGE_HALF, base.z + VILLAGE_HALF)
+	# On interrompt récolte/déplacement en cours et on fuit vers ce point.
+	_assigned_attack = null
+	nav_agent.target_position = dest
+	_arm_watch()
+	_flee_active = true
 	set_state(State.MOVING)
 
 ## --- Logique interne ---
@@ -436,7 +463,7 @@ func _attack(_delta: float) -> void:
 			set_state(State.GOING_TO_ATTACK)
 			return
 		if _attack_cd <= 0.0 and _assigned_attack.has_method("take_damage"):
-			_assigned_attack.call("take_damage", ATTACK_DAMAGE)
+			_assigned_attack.call("take_damage", ATTACK_DAMAGE, self.global_position)
 			_attack_cd = ATTACK_COOLDOWN
 	else:
 		_assigned_attack = null
@@ -447,14 +474,24 @@ func _move_to_point_state(delta: float) -> void:
 	# (ex. point dans un obstacle/un trou), on s'arrête au repos au lieu de
 	# courir indéfiniment dans le vide.
 	if _stuck_check(delta):
-		set_state(State.IDLE)
+		_finish_move()
 		return
 	# Se rend au point demandé puis passe au repos (IDLE). Distance horizontale :
 	# la hauteur Y ne doit pas empêcher de considérer le point comme atteint.
 	if _hdist(nav_agent.target_position) <= REACH_DISTANCE:
-		set_state(State.IDLE)
+		_finish_move()
 		return
 	_step(delta)
+
+## Fin d'un déplacement vers un point (fuite OU ordre libre). Si c'était une
+## fuite (défense auto), le paysan reprend sa tâche automatique de récolte ;
+## sinon il reste au repos (déplacement libre classique).
+func _finish_move() -> void:
+	if _flee_active:
+		_flee_active = false
+		_select_next_task()
+	else:
+		set_state(State.IDLE)
 
 ## Distance HORIZONTALE (plan XZ) jusqu'à un point. Les vérifications d'arrivée
 ## utilisent cette distance plutôt que la distance 3D : sur le terrain en gradins,
@@ -571,8 +608,11 @@ func _is_sel_material(mat: Material) -> bool:
 
 ## --- Santé / Combat PvP ---
 ## Reçoit des dégâts d'une unité adverse. Meurt quand la santé tombe à 0.
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, attacker_pos: Vector3 = Vector3.ZERO) -> void:
 	hp -= amount
+	last_damage_ms = Time.get_ticks_msec()
+	# Défense auto : l'unité touchée réagit immédiatement (fuit l'attaquant).
+	react_to_attack(attacker_pos)
 	if hp <= 0:
 		die()
 
