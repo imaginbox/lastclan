@@ -28,22 +28,32 @@ func _ready() -> void:
 ## Ajoute de l'or (delta peut être négatif).
 func add_gold(delta: int) -> void:
 	gold += delta
+	_realm_gain(delta)
 	resources_changed.emit(gold, wood, stone, food)
 
 ## Ajoute du bois (delta peut être négatif).
 func add_wood(delta: int) -> void:
 	wood += delta
+	_realm_gain(delta)
 	resources_changed.emit(gold, wood, stone, food)
 
 ## Ajoute de la pierre (delta peut être négatif).
 func add_stone(delta: int) -> void:
 	stone += delta
+	_realm_gain(delta)
 	resources_changed.emit(gold, wood, stone, food)
 
 ## Ajoute de la nourriture (delta peut être négatif).
 func add_food(delta: int) -> void:
 	food += delta
+	_realm_gain(delta)
 	resources_changed.emit(gold, wood, stone, food)
+
+## L'activité économique positive alimente la jauge « Sort du Royaume » : c'est
+## ce qui fait monter la santé du serveur quand les joueurs produisent/récoltent.
+func _realm_gain(delta: int) -> void:
+	if delta > 0 and has_node("/root/Realm"):
+		Realm.activity(float(delta) * 0.01)
 
 ## Tente de dépenser or + bois. Renvoie true si tout est couvert.
 func spend(gold_cost: int, wood_cost: int) -> bool:

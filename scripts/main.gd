@@ -70,6 +70,7 @@ var _tap_allowed := true
 enum OrderMode { NONE, MOVE, GATHER, ATTACK }
 var _order_mode: int = OrderMode.NONE
 var _order_bar: HBoxContainer = null
+var _inspect_label: Label = null
 var _order_btns := {}   # OrderMode -> Button
 var _order_hint: Label = null
 var _order_armed := false
@@ -86,6 +87,13 @@ var _hud_workers_label: Label = null
 var _hud_soldiers_label: Label = null
 var _hud_room_label: Label = null
 var _hud_hover_label: Label = null
+var _hud_realm_label: Label = null
+var _hud_clan_label: Label = null
+var _clan_panel: PanelContainer = null
+var _clan_name_input: LineEdit = null
+var _clan_tag_input: LineEdit = null
+var _clan_join_input: LineEdit = null
+var _clan_list_label: Label = null
 
 ## --- Nombres de récolte flottants (HUD cartoon) ---
 var _float_root: CanvasLayer = null
@@ -1491,12 +1499,14 @@ func _deselect_all() -> void:
 		_selected_building = null
 	_building_panel.visible = false
 	_refresh_order_button()
+	_refresh_inspector()
 
 func _update_selection_feedback() -> void:
 	for u in _selected_units:
 		if is_instance_valid(u):
 			u.call("set_selected", true)
 	_refresh_order_button()
+	_refresh_inspector()
 
 func _select_building(b: Building) -> void:
 	# On ne PEUT PAS sélectionner/manipuler les bâtiments des autres joueurs :
@@ -1838,12 +1848,34 @@ func _setup_hud() -> void:
 	_hud_hover_label.visible = false
 	var room_code := Lobby.room_id if Lobby.has_base and Lobby.is_online else "hors ligne"
 	_hud_room_label.text = "Partie : %s" % room_code
+	# Jauge « Sort du Royaume » : état du serveur piloté par l'activité collective.
+	# Ajoutée au HUD pour que chacun voie la santé du royaume et agisse en conséquence.
+	_hud_realm_label = Label.new()
+	_hud_realm_label.add_theme_font_size_override("font_size", fs)
+	_hud_realm_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	_hud_realm_label.add_theme_constant_override("outline_size", 6)
+	vb.add_child(_hud_realm_label)
+	if get_node_or_null("/root/Realm") != null:
+		Realm.realm_changed.connect(_on_realm_changed)
+		_on_realm_changed(Realm.value, Realm.zone())
+	# Paneau d'identité : mon clan (ou la possibilité d'en créer/rejoindre un).
+	_hud_clan_label = Label.new()
+	_hud_clan_label.add_theme_font_size_override("font_size", fs)
+	_hud_clan_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
+	_hud_clan_label.add_theme_constant_override("outline_size", 6)
+	_hud_clan_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	vb.add_child(_hud_clan_label)
+	if get_node_or_null("/root/Clans") != null:
+		Clans.my_clan_changed.connect(_on_my_clan_changed)
+		_on_my_clan_changed()
 	var rm := get_node("/root/ResourceManager")
 	rm.resources_changed.connect(_on_resources_changed)
 	rm.population_changed.connect(_on_population_changed)
 	_on_resources_changed(rm.gold, rm.wood, rm.stone, rm.food)
 	_on_population_changed(rm.population, rm.population_cap)
 	_refresh_unit_counts()
+	# Bouton pour ouvrir le panneau Clan (mobile + PC).
+	_setup_clan_button()
 
 func _on_resources_changed(gold: int, wood: int, stone: int, food: int) -> void:
 	if _hud_gold_label != null:
@@ -1858,6 +1890,36 @@ func _on_resources_changed(gold: int, wood: int, stone: int, food: int) -> void:
 func _on_population_changed(used: int, cap: int) -> void:
 	if _hud_pop_label != null:
 		_hud_pop_label.text = "Population : %d / %d" % [used, cap]
+
+## Met à jour la jauge « Sort du Royaume » dans le HUD.
+func _on_realm_changed(value: float, zone: String) -> void:
+	if _hud_realm_label == null:
+		return
+	var icon := "🌱"
+	var color := Color(0.7, 0.9, 0.5)
+	match zone:
+		"prosperity":
+			icon = "🌟"
+			color = Color(0.5, 1.0, 0.5)
+			_hud_realm_label.add_theme_color_override("font_color", color)
+		"decline":
+			icon = "⚠️"
+			color = Color(1.0, 0.5, 0.4)
+			_hud_realm_label.add_theme_color_override("font_color", color)
+		_:
+			icon = "🌱"
+			color = Color(0.95, 0.95, 0.75)
+			_hud_realm_label.add_theme_color_override("font_color", color)
+	_hud_realm_label.text = "%s Sort du Royaume : %d" % [icon, int(value)]
+
+## Met à jour mon affiliation de clan dans le HUD.
+func _on_my_clan_changed() -> void:
+	if _hud_clan_label == null:
+		return
+	if Clans.my_clan == "":
+		_hud_clan_label.text = "🛡️ Aucun clan — touchez « Clan » pour créer/rejoindre"
+	else:
+		_hud_clan_label.text = "🛡️ Clan : %s (%s)" % [Clans.my_clan_name(), Clans.my_clan]
 
 ## Compte les unités vivantes pour l'affichage Travailleurs / Soldats.
 func _refresh_unit_counts() -> void:
@@ -1876,7 +1938,187 @@ func _refresh_unit_counts() -> void:
 func _notify(text: String) -> void:
 	print(text)
 
-# ============================================================ BOUTON ORDRE (mobile)
+## Inspecteur : affiche les infos d'une seule unité sélectionnée (mobile + PC).
+## Donne au joueur un retour clair sur ce que fait son personnage.
+func _refresh_inspector() -> void:
+	if _inspect_label == null:
+		return
+	if _selected_units.size() != 1 or not is_instance_valid(_selected_units[0]):
+		_inspect_label.visible = false
+		return
+	var u: Node = _selected_units[0]
+	var parts: Array = []
+	if u is Villager:
+		parts.append("🧑‍🌾 Paysan")
+		parts.append("❤️ %d/%d" % [u.hp, u.max_hp])
+		if u._state == Villager.State.GOING_TO_RESOURCE or u._state == Villager.State.GATHERING:
+			parts.append("⛏️ Récolte")
+		elif u._state == Villager.State.RETURNING:
+			parts.append("📦 Livre (%d)" % u._carried_amount)
+		elif u._state == Villager.State.ATTACKING:
+			parts.append("⚔️ Combat")
+		elif u._state == Villager.State.MOVING:
+			parts.append("🏃 Déplace")
+		else:
+			parts.append("😴 Idle")
+	elif u is Soldier:
+		parts.append("⚔️ Soldat")
+		parts.append("❤️ %d/%d" % [u.hp, u.max_hp])
+		if u._state == Soldier.State.ATTACK:
+			parts.append("⚔️ Combat")
+		elif u._state == Soldier.State.MOVE:
+			parts.append("🏃 Déplace")
+		else:
+			parts.append("😴 Idle")
+	_inspect_label.text = "  ".join(parts)
+	_inspect_label.visible = true
+
+# ============================================================ PANEL CLAN
+
+## Bouton flottant « Clan » (coin supérieur droit) : ouvre/ferme le panneau.
+func _setup_clan_button() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 41
+	add_child(layer)
+	var btn := Button.new()
+	btn.name = "ClanButton"
+	btn.text = "🛡️ Clan"
+	btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	btn.offset_left = -150.0 * _ui_scale
+	btn.offset_top = 12.0 * _ui_scale
+	btn.offset_right = -12.0 * _ui_scale
+	btn.offset_bottom = (12.0 + 44.0 * _ui_scale) * _ui_scale
+	btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	btn.pressed.connect(_toggle_clan_panel)
+	layer.add_child(btn)
+	# Le panneau s'ouvre au-dessus/beside du bouton.
+	_clan_panel = PanelContainer.new()
+	_clan_panel.name = "ClanPanel"
+	_clan_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_clan_panel.offset_left = -340.0 * _ui_scale
+	_clan_panel.offset_top = 60.0 * _ui_scale
+	_clan_panel.offset_right = -12.0 * _ui_scale
+	_clan_panel.offset_bottom = 60.0 * _ui_scale + 320.0 * _ui_scale
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0, 0, 0, 0.88)
+	bg.corner_radius_top_left = 10
+	bg.corner_radius_top_right = 10
+	bg.corner_radius_bottom_left = 10
+	bg.corner_radius_bottom_right = 10
+	bg.border_color = Color(0.5, 0.7, 1.0, 0.6)
+	bg.set_border_width_all(2)
+	_clan_panel.add_theme_stylebox_override("panel", bg)
+	_clan_panel.visible = false
+	layer.add_child(_clan_panel)
+	_build_clan_panel_content()
+
+func _toggle_clan_panel() -> void:
+	if _clan_panel == null:
+		return
+	_clan_panel.visible = not _clan_panel.visible
+	if _clan_panel.visible:
+		_refresh_clan_panel()
+
+## Contenu du panneau Clan : selon mon statut (aucun clan / membre), montre les
+## bons champs et boutons. Conçu mobile-first (champs larges + gros boutons).
+func _build_clan_panel_content() -> void:
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	var margin := MarginContainer.new()
+	for m in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
+		margin.add_theme_constant_override(m, 12)
+	_clan_panel.add_child(margin)
+	margin.add_child(vb)
+
+	var title := Label.new()
+	title.text = "🛡️ Clans du royaume"
+	title.add_theme_font_size_override("font_size", int(18 * _ui_scale))
+	vb.add_child(title)
+
+	# Champs création (toujours montrés ; on désactive si déjà dans un clan).
+	_clan_name_input = LineEdit.new()
+	_clan_name_input.placeholder_text = "Nom du clan"
+	_clan_name_input.custom_minimum_size = Vector2(0, 34 * _ui_scale)
+	vb.add_child(_clan_name_input)
+	_clan_tag_input = LineEdit.new()
+	_clan_tag_input.placeholder_text = "Tag (max 6)"
+	_clan_tag_input.max_length = 6
+	_clan_tag_input.custom_minimum_size = Vector2(0, 34 * _ui_scale)
+	vb.add_child(_clan_tag_input)
+
+	var create_btn := Button.new()
+	create_btn.text = "Créer un clan"
+	create_btn.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	create_btn.pressed.connect(_on_create_clan_pressed)
+	vb.add_child(create_btn)
+
+	# Rejoindre un clan par tag.
+	var join_row := HBoxContainer.new()
+	join_row.add_theme_constant_override("separation", 6)
+	var join_input := LineEdit.new()
+	join_input.placeholder_text = "Tag à rejoindre"
+	join_input.max_length = 6
+	join_input.custom_minimum_size = Vector2(0, 34 * _ui_scale)
+	join_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	join_row.add_child(join_input)
+	_clan_join_input = join_input
+	var join_btn := Button.new()
+	join_btn.text = "Rejoindre"
+	join_btn.pressed.connect(_on_join_clan_pressed)
+	join_row.add_child(join_btn)
+	vb.add_child(join_row)
+
+	var leave_btn := Button.new()
+	leave_btn.text = "Quitter mon clan"
+	leave_btn.custom_minimum_size = Vector2(0, 38 * _ui_scale)
+	leave_btn.pressed.connect(_on_leave_clan_pressed)
+	vb.add_child(leave_btn)
+
+	# Liste des clans existants.
+	_clan_list_label = Label.new()
+	_clan_list_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_clan_list_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	_clan_list_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	vb.add_child(_clan_list_label)
+	# NB : my_clan_changed est déjà connecté dans _setup_hud (pas de double lien).
+	if get_node_or_null("/root/Clans") != null:
+		Clans.clans_received.connect(_on_clans_received)
+
+func _on_create_clan_pressed() -> void:
+	var clan_label := _clan_name_input.text.strip_edges()
+	var tag := _clan_tag_input.text.strip_edges()
+	if clan_label.is_empty() or tag.is_empty():
+		_notify("Choisissez un nom et un tag.")
+		return
+	Clans.create_clan(clan_label, tag, 0)
+
+func _on_join_clan_pressed() -> void:
+	var tag := _clan_join_input.text.strip_edges()
+	if tag.is_empty():
+		_notify("Entrez un tag de clan à rejoindre.")
+		return
+	Clans.join_clan(tag)
+
+func _on_leave_clan_pressed() -> void:
+	Clans.leave_clan()
+
+func _on_clans_received() -> void:
+	_refresh_clan_panel()
+
+func _refresh_clan_panel() -> void:
+	if _clan_panel == null or _clan_list_label == null:
+		return
+	# Met à jour la liste des clans visibles.
+	var lines: Array = []
+	for t in Clans.local_clans.keys():
+		var c: Dictionary = Clans.local_clans[t]
+		lines.append("• %s [%s] — %d membre(s) — Grandeur %d" % [
+			str(c.get("name", t)), t, int(c.get("members", {}).size()), int(c.get("grandeur", 0))
+		])
+	if lines.is_empty():
+		_clan_list_label.text = "Aucun clan pour l'instant.\nSoyez le premier à créer un clan !"
+	else:
+		_clan_list_label.text = "\n".join(lines)
 
 ## Bouton flottant qui remplace le clic droit sur mobile. Apparaît dès qu'une
 ## unité est sélectionnée ; on le touche pour "armer" l'ordre, puis un tap sur
@@ -1958,6 +2200,21 @@ func _setup_order_button() -> void:
 	stop_btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
 	stop_btn.pressed.connect(_cancel_selection)
 	hb.add_child(stop_btn)
+
+	# Inspecteur d'unité : infos sur l'unité sélectionnée (mobile + PC), affiché
+	# juste au-dessus de la barre d'ordre quand il y a exactement une sélection.
+	_inspect_label = Label.new()
+	_inspect_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_inspect_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_inspect_label.offset_top = -196.0 * _ui_scale
+	_inspect_label.offset_bottom = -172.0 * _ui_scale
+	_inspect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_inspect_label.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+	_inspect_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	_inspect_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_inspect_label.add_theme_constant_override("outline_size", 6)
+	_inspect_label.visible = false
+	layer.add_child(_inspect_label)
 
 ## Annule la sélection en cours (les unités retournent à leur tâche auto).
 func _cancel_selection() -> void:

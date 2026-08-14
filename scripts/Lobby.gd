@@ -21,7 +21,7 @@ signal player_connected(peer_id: int, player_info: Dictionary)
 signal player_disconnected(peer_id: int)
 signal server_disconnected
 signal connection_status(text: String)
-signal chat_received(author: String, text: String)
+signal chat_received(author: String, text: String, src_lang: String)
 signal base_ready(origin: Vector3)
 ## Le roster a changé (mode auto-hébergé natif : le serveur diffuse la liste
 ## complète des joueurs à tous les clients — ils ne se voient pas directement).
@@ -365,6 +365,53 @@ func _on_connected_ok() -> void:
 	player_connected.emit(my_id, player_info)
 	var mode_label := "client" if net_mode == NetMode.NET_CLIENT else "room « %s »" % room_id
 	connection_status.emit("Connecté (peer %d), %s" % [my_id, mode_label])
+	# Selon le rôle réseau, on initialise l'état social/royaume :
+	#   - Serveur : diffuse immédiatement le registre des clans + la jauge.
+	#   - Client  : demande la resync des clans au serveur.
+	_setup_social_network()
+
+## Initialise la synchro réseau du social (clans + jauge « Sort du Royaume »).
+func _setup_social_network() -> void:
+	if get_node_or_null("/root/Clans") == null or get_node_or_null("/root/Realm") == null:
+		return
+	if net_mode == NetMode.NET_HOST:
+		# Serveur : autorité. Diffuse l'état des clans et démarre le broadcast lent
+		# de la jauge du royaume (1×/s, léger — pas de surcharge du buffer WebSocket).
+		Clans.sync_from_server()
+		_start_realm_broadcast()
+	elif net_mode == NetMode.NET_CLIENT:
+		# Client : demande l'état des clans au serveur (peer 1).
+		_request_clans_rpc.rpc_id(1)
+
+## (Serveur) Diffuse périodiquement la valeur de la jauge du royaume.
+var _realm_bcast: Timer = null
+func _start_realm_broadcast() -> void:
+	if _realm_bcast != null:
+		return
+	_realm_bcast = Timer.new()
+	_realm_bcast.wait_time = 1.0
+	_realm_bcast.autostart = true
+	_realm_bcast.timeout.connect(_bcast_realm)
+	add_child(_realm_bcast)
+
+func _bcast_realm() -> void:
+	if not is_online or get_node_or_null("/root/Realm") == null:
+		return
+	_sync_realm.rpc(Realm.value)
+
+## Client : reçoit la jauge du royaume depuis le serveur.
+@rpc("any_peer", "call_local", "reliable")
+func _sync_realm(value: float) -> void:
+	if get_node_or_null("/root/Realm") == null:
+		return
+	Realm.apply_server_value(value)
+
+## Client : demande le registre des clans au serveur.
+@rpc("any_peer", "reliable")
+func _request_clans_rpc() -> void:
+	if get_node_or_null("/root/Clans") == null:
+		return
+	Clans.sync_from_server()
 
 @rpc("any_peer", "reliable")
 func _register_player(info: Dictionary) -> void:
@@ -530,11 +577,13 @@ func send_chat(text: String) -> void:
 	var clean := text.strip_edges()
 	if clean.is_empty():
 		return
-	_send_chat.rpc(clean)
+	_send_chat.rpc(clean, Langs.language)
 
 ## RPC de chat : chaque pair l'affiche ("call_local" => l'expéditeur aussi).
+## Transporte la LANGUE SOURCE du message pour la traduction automatique :
+## chaque lecteur pourra l'afficher dans sa propre langue (Translator.translate).
 @rpc("any_peer", "call_local", "reliable")
-func _send_chat(text: String) -> void:
+func _send_chat(text: String, _src_lang: String) -> void:
 	var author := "Joueur"
 	var sender: int = multiplayer.get_remote_sender_id()
 	if sender <= 1 or sender == my_id:
@@ -543,7 +592,7 @@ func _send_chat(text: String) -> void:
 		author = str(players[sender].get("name", "Joueur %d" % sender))
 	else:
 		author = "Joueur %d" % sender
-	chat_received.emit(author, text)
+	chat_received.emit(author, text, _src_lang)
 
 ## --- Position de base ---
 

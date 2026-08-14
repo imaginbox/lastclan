@@ -153,6 +153,21 @@ func _build_ui() -> void:
 	_name_input.custom_minimum_size = Vector2(0, 34)
 	vb.add_child(_name_input)
 
+	# Langue de l'interface + du chat (international). Persiste via I18n.
+	var lang_row := HBoxContainer.new()
+	lang_row.add_theme_constant_override("separation", 8)
+	vb.add_child(lang_row)
+	lang_row.add_child(_field_label(Langs.t("ui.chat") + " / 🌍"))
+	var _lang = OptionButton.new()
+	_lang.custom_minimum_size = Vector2(0, 34)
+	_lang.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for lang_code in Langs.available_languages():
+		_lang.add_item("%s %s" % [Langs.code_to_flag(lang_code), Langs.lang_name(lang_code)])
+		if lang_code == Langs.language:
+			_lang.select(_lang.item_count - 1)
+	_lang.item_selected.connect(_on_language_selected)
+	lang_row.add_child(_lang)
+
 	# Jouer hors ligne : fonctionne sans réseau ni relais — bien visible en haut.
 	_offline_button = Button.new()
 	_offline_button.text = "Jouer hors ligne (solo)"
@@ -349,10 +364,18 @@ func _generate_code() -> String:
 		out += chars[randi() % chars.length()]
 	return out
 
+func _on_language_selected(index: int) -> void:
+	var langs := Langs.available_languages()
+	if index >= 0 and index < langs.size():
+		Langs.language = langs[index]
+		_on_status("Langue : %s" % Langs.lang_name(Langs.language))
+
 func _apply_name() -> void:
 	var player_name := _name_input.text.strip_edges()
 	if not player_name.is_empty():
 		Lobby.player_info["name"] = player_name
+	# Embarque la langue du joueur pour l'affichage international (roster/chat).
+	Lobby.player_info["lang"] = Langs.language
 
 func _on_chat_send() -> void:
 	_send_chat_text()
@@ -413,8 +436,16 @@ func _on_roster_changed() -> void:
 	_refresh_players()
 	_update_launch()
 
-func _on_chat(author: String, text: String) -> void:
-	_chat_log.append_text("[b]%s[/b] : %s\n" % [author, text])
+func _on_chat(author: String, text: String, src_lang: String = "en") -> void:
+	# Chat international : on affiche dans la langue du joueur via le moteur de
+	# traduction (Translator). Tant que le moteur est inactif, texte original.
+	var tr := Translator.translate(text, src_lang)
+	var shown: String = tr["text"]
+	var flag := Langs.code_to_flag(src_lang)
+	if tr["auto"]:
+		_chat_log.append_text("[b]%s[/b] %s : %s  [i](%s)[/i]\n" % [flag, author, shown, Langs.lang_name(src_lang)])
+	else:
+		_chat_log.append_text("[b]%s[/b] %s : %s\n" % [flag, author, shown])
 
 func _refresh_players() -> void:
 	for child in _players_box.get_children():

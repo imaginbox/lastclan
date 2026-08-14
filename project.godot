@@ -23,6 +23,10 @@ config/icon="res://icon.svg"
 
 ResourceManager="*res://scripts/ResourceManager.gd"
 Lobby="*res://scripts/Lobby.gd"
+Langs="*res://scripts/I18n.gd"
+Clans="*res://scripts/Clans.gd"
+Translator="*res://scripts/Translator.gd"
+Realm="*res://scripts/Realm.gd"
 
 [display]
 
