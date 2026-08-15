@@ -24,6 +24,15 @@ func test_town_hall_uses_sprite_not_cube() -> void:
 		push_error("CHECK FAILED: Sprite HDV sans texture")
 	if th.get_node_or_null("Mesh") != null:
 		push_error("CHECK FAILED: HDV devrait être un Sprite, pas un Mesh")
+	# LARGEUR = empreinte : le sprite ne doit ni sur-déborder ni être minuscule.
+	var foot: int = th.footprint()
+	var w: float = float(sprite.texture.get_size().x) * sprite.pixel_size
+	if absf(w - float(foot)) > 0.01:
+		push_error("CHECK FAILED: largeur sprite HDV (%.2f) != empreinte %d" % [w, foot])
+	# Le bas du sprite doit reposer sur le sol : position.y = hauteur affichée/2.
+	var h: float = float(sprite.texture.get_size().y) * sprite.pixel_size
+	if sprite.position.y < h * 0.5 or sprite.position.y > h * 0.5 + 0.05:
+		push_error("CHECK FAILED: pied du sprite mal ancré au sol (y=%.2f, h=%.2f)" % [sprite.position.y, h])
 	th.free()
 
 func test_town_hall_sprite_texture_follows_level() -> void:

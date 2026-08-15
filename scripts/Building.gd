@@ -321,14 +321,21 @@ func _build_visual() -> void:
 		_sprite.texture = _town_hall_texture()
 		_sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		_sprite.centered = true
-		# Échelle : la largeur correspond à l'empreinte (footprint), la hauteur
-		# s'adapte au ratio de l'image pour garder les proportions.
 		var tsize := _sprite.texture.get_size()
+		# IMPORTANT : la taille d'un Sprite3D dépend de `pixel_size` (par défaut
+		# 1 px = 0.01 m). On règle pixel_size pour que la LARGEUR de l'image égale
+		# l'empreinte au sol (f), la hauteur s'adaptant selon l'aspect. Sans ça, le
+		# sprite serait démesuré (plus de 10 m) et sa base s'enfoncerait sous le
+		# sol, qui le sectionnait à mi-hauteur (« bâtiment coupé »).
 		if tsize.x > 0:
-			var aspect := float(tsize.y) / float(tsize.x)
-			_sprite.scale = Vector3(f, f * aspect, 1.0)
-		# Le pied de l'image repose sur le sol : on remonte la moitié de la hauteur.
-		_sprite.position.y = (_sprite.scale.y * 0.5)
+			_sprite.pixel_size = f / float(tsize.x)
+		else:
+			_sprite.pixel_size = 1.0
+		# La hauteur affichée en mètres = tsize.y * pixel_size. On la déduit pour
+		# poser le pied de l'image sur le sol (centre + moitié de la hauteur).
+		var display_h := float(tsize.y) * _sprite.pixel_size
+		# Petit offset minimal (~0.04 m) pour éviter un z-fighting du plan du sol.
+		_sprite.position.y = (display_h * 0.5) + 0.04
 		add_child(_sprite)
 	else:
 		_mesh = MeshInstance3D.new()
