@@ -93,3 +93,35 @@ func test_unit_deselect_hides_state_panel() -> void:
 	if panel != null and panel.visible:
 		push_error("CHECK FAILED: panneau d'états visible après désélection")
 	main.queue_free()
+
+## La barre de ressources du haut ne doit plus avoir de fond pleine largeur.
+func test_resource_bar_has_no_background() -> void:
+	var main := _make_main()
+	if get_tree() == null:
+		main.queue_free()
+		return
+	await get_tree().process_frame
+	var bar := main.get_node_or_null("ResourceBar")
+	if bar == null:
+		main.queue_free()
+		return
+	var sb: StyleBox = bar.get_theme_stylebox("panel")
+	if sb != null and not (sb is StyleBoxEmpty):
+		push_error("CHECK FAILED: la barre de ressources garde un fond")
+	main.queue_free()
+
+## Les sous-infos du haut doivent rester ancrées à GAUCHE (pas à droite).
+func test_extra_info_anchored_left() -> void:
+	var main := _make_main()
+	if not main.has_method("_apply_orientation_layout"):
+		main.queue_free()
+		return
+	main._is_portrait = false
+	main.call("_apply_orientation_layout")
+	var extra: PanelContainer = main.get("_hud_extra_panel")
+	if extra == null:
+		main.queue_free()
+		return
+	if extra.anchor_left > 0.1:
+		push_error("CHECK FAILED: les sous-infos ne sont pas ancrées à gauche")
+	main.queue_free()

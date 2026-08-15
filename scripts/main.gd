@@ -1828,19 +1828,8 @@ func _setup_hud() -> void:
 	top.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	top.offset_top = 10.0 * _ui_scale
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var tb := StyleBoxFlat.new()
-	tb.bg_color = Color(0.1, 0.12, 0.16, 0.85)
-	tb.corner_radius_top_left = 10
-	tb.corner_radius_top_right = 10
-	tb.corner_radius_bottom_left = 10
-	tb.corner_radius_bottom_right = 10
-	tb.border_color = Color(0.6, 0.7, 0.9, 0.35)
-	tb.set_border_width_all(2)
-	tb.content_margin_left = 8
-	tb.content_margin_right = 8
-	tb.content_margin_top = 6
-	tb.content_margin_bottom = 6
-	top.add_theme_stylebox_override("panel", tb)
+	# Aucun fond : les pillules (icône + valeur) flottent directement sur le jeu.
+	top.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	layer.add_child(top)
 	var hb := HBoxContainer.new()
 	hb.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -1997,23 +1986,15 @@ func _apply_orientation_layout() -> void:
 		if _hud_extra_panel != null and not _hud_extra_panel.visible:
 			_hud_extra_panel.visible = true
 			_hud_plus_btn.modulate = Color(1, 0.8, 0.4)
-	# Position du panneau des sous-infos : on l'ancrer à droite en paysage pour
-	# ne pas recouvrir le bouton + à gauche. Ancres explicites (fiable sur CanvasLayer).
+	# Position du panneau des sous-infos : toujours ancré à GAUCHE, sous la barre
+	# de ressources (pour rester près des pillules). Ancres explicites (fiables).
 	if _hud_extra_panel != null:
-		# Largeur du panneau des sous-infos (estimée : ressource + jauge + clan).
 		var ew: float = 460.0 * _ui_scale
-		if _is_portrait:
-			_hud_extra_panel.anchor_left = 0.0
-			_hud_extra_panel.anchor_right = 0.0
-			_hud_extra_panel.offset_left = 10.0 * _ui_scale
-			_hud_extra_panel.offset_right = (10.0 + ew) * _ui_scale
-			_hud_extra_panel.offset_top = 56.0 * _ui_scale
-		else:
-			_hud_extra_panel.anchor_left = 1.0
-			_hud_extra_panel.anchor_right = 1.0
-			_hud_extra_panel.offset_left = -(ew + 12.0) * _ui_scale
-			_hud_extra_panel.offset_right = -12.0 * _ui_scale
-			_hud_extra_panel.offset_top = 56.0 * _ui_scale
+		_hud_extra_panel.anchor_left = 0.0
+		_hud_extra_panel.anchor_right = 0.0
+		_hud_extra_panel.offset_left = 10.0 * _ui_scale
+		_hud_extra_panel.offset_right = (10.0 + ew) * _ui_scale
+		_hud_extra_panel.offset_top = 56.0 * _ui_scale
 
 
 func _on_resources_changed(gold: int, wood: int, stone: int, food: int) -> void:
@@ -2161,10 +2142,10 @@ func _setup_clan_button() -> void:
 	mvb.add_theme_constant_override("separation", 8)
 	mv.add_child(mvb)
 	# Entrées du menu (chaque un bouton dépliable ou action).
-	var _realm_btn := _make_top_menu_item(mvb, "🌱 Royaume", _notify.bind("Jauge du royaume (bientôt détaillée)"))
-	clan_entry_btn = _make_top_menu_item(mvb, "🛡️ Clan", _toggle_clan_panel)
-	var _settings_btn := _make_top_menu_item(mvb, "⚙️ Paramètres", _notify.bind("Paramètres (bientôt)"))
-	_make_top_menu_item(mvb, "🌍 Langue", _toggle_language_popup)
+	var _realm_btn := _make_top_menu_item(mvb, "Royaume", _notify.bind("Jauge du royaume (bientôt détaillée)"))
+	clan_entry_btn = _make_top_menu_item(mvb, "Clan", _toggle_clan_panel)
+	var _settings_btn := _make_top_menu_item(mvb, "Paramètres", _notify.bind("Paramètres (bientôt)"))
+	_make_top_menu_item(mvb, "Langue", _toggle_language_popup)
 	var close_btn := Button.new()
 	close_btn.text = "Fermer"
 	close_btn.custom_minimum_size = Vector2(0, 40 * _ui_scale)
@@ -2245,7 +2226,7 @@ func _build_clan_panel_content() -> void:
 	margin.add_child(vb)
 
 	var title := Label.new()
-	title.text = "🛡️ Clans du royaume"
+	title.text = "Clans du royaume"
 	title.add_theme_font_size_override("font_size", int(18 * _ui_scale))
 	vb.add_child(title)
 
@@ -2393,9 +2374,9 @@ func _setup_order_button() -> void:
 	
 	# Boutons d'ordre
 	var actions := [
-		[OrderMode.MOVE, "🏃 Déplacer"],
-		[OrderMode.GATHER, "⛏️ Récolter"],
-		[OrderMode.ATTACK, "⚔️ Attaquer"],
+		[OrderMode.MOVE, "Déplacer"],
+		[OrderMode.GATHER, "Récolter"],
+		[OrderMode.ATTACK, "Attaquer"],
 	]
 	for a in actions:
 		var btn := Button.new()
@@ -2410,7 +2391,7 @@ func _setup_order_button() -> void:
 	
 	# Bouton Stop / Désélectionner (toujours utile)
 	var stop_btn := Button.new()
-	stop_btn.text = "🛑 Stop"
+	stop_btn.text = "Stop"
 	stop_btn.custom_minimum_size = Vector2(90 * _ui_scale, 46 * _ui_scale)
 	stop_btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
 	_stylize_coc_button(stop_btn)
@@ -2545,7 +2526,10 @@ func _setup_build_ui() -> void:
 	# ===== Bouton « Construire » en bas à gauche : se déplie en grille (CoC).
 	_build_main_btn = Button.new()
 	_build_main_btn.name = "BuildButton"
-	_build_main_btn.text = "🔨 Construire"
+	_build_main_btn.text = "Construire"
+	_build_main_btn.icon = _icon("hammer")
+	_build_main_btn.expand_icon = true
+	_build_main_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_build_main_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_build_main_btn.grow_horizontal = Control.GROW_DIRECTION_END
 	_build_main_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN

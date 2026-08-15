@@ -160,7 +160,7 @@ func _build_ui() -> void:
 	var lang_row := HBoxContainer.new()
 	lang_row.add_theme_constant_override("separation", 8)
 	vb.add_child(lang_row)
-	lang_row.add_child(_field_label(Langs.t("ui.chat") + " / 🌍"))
+	lang_row.add_child(_field_label(Langs.t("ui.chat") + " / Langue :"))
 	var _lang = OptionButton.new()
 	_lang.custom_minimum_size = Vector2(0, 34)
 	_lang.size_flags_horizontal = Control.SIZE_EXPAND_FILL
