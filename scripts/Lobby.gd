@@ -115,6 +115,18 @@ func _mp_log(msg: String) -> void:
 		f.store_line("[peer=%d] %s" % [my_id, msg])
 		f.close()
 
+## Accesseurs des autoloads via get_node (comme LobbyMenu) : évite les erreurs
+## intermittentes « Identifier not found » au parse (l'analyseur ne connaît pas
+## toujours les singletons selon l'ordre de chargement du cache de l'éditeur).
+func _clans() -> Node:
+	return get_node("/root/Clans")
+
+func _realm() -> Node:
+	return get_node("/root/Realm")
+
+func _langs() -> Node:
+	return get_node("/root/Langs")
+
 func _ready() -> void:
 	_prepare_args()
 	multiplayer.peer_connected.connect(_on_player_connected)
@@ -377,7 +389,7 @@ func _setup_social_network() -> void:
 	if net_mode == NetMode.NET_HOST:
 		# Serveur : autorité. Diffuse l'état des clans et démarre le broadcast lent
 		# de la jauge du royaume (1×/s, léger — pas de surcharge du buffer WebSocket).
-		Clans.sync_from_server()
+		_clans().sync_from_server()
 		_start_realm_broadcast()
 	elif net_mode == NetMode.NET_CLIENT:
 		# Client : demande l'état des clans au serveur (peer 1).
@@ -397,21 +409,21 @@ func _start_realm_broadcast() -> void:
 func _bcast_realm() -> void:
 	if not is_online or get_node_or_null("/root/Realm") == null:
 		return
-	_sync_realm.rpc(Realm.value)
+	_sync_realm.rpc(_realm().value)
 
 ## Client : reçoit la jauge du royaume depuis le serveur.
 @rpc("any_peer", "call_local", "reliable")
 func _sync_realm(value: float) -> void:
 	if get_node_or_null("/root/Realm") == null:
 		return
-	Realm.apply_server_value(value)
+	_realm().apply_server_value(value)
 
 ## Client : demande le registre des clans au serveur.
 @rpc("any_peer", "reliable")
 func _request_clans_rpc() -> void:
 	if get_node_or_null("/root/Clans") == null:
 		return
-	Clans.sync_from_server()
+	_clans().sync_from_server()
 
 @rpc("any_peer", "reliable")
 func _register_player(info: Dictionary) -> void:
@@ -577,7 +589,7 @@ func send_chat(text: String) -> void:
 	var clean := text.strip_edges()
 	if clean.is_empty():
 		return
-	_send_chat.rpc(clean, Langs.language)
+	_send_chat.rpc(clean, _langs().language)
 
 ## RPC de chat : chaque pair l'affiche ("call_local" => l'expéditeur aussi).
 ## Transporte la LANGUE SOURCE du message pour la traduction automatique :
