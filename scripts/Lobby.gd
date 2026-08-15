@@ -594,6 +594,65 @@ func _send_chat(text: String, _src_lang: String) -> void:
 		author = "Joueur %d" % sender
 	chat_received.emit(author, text, _src_lang)
 
+## --- Suggestions (feedback joueurs, persistées côté serveur) ---
+
+## Envoie une suggestion / rapport de bug au SERVEUR (auto-hébergé WebSocket).
+## Le serveur écrit le message dans un fichier persistant hors dépôt Git, pour
+## que l'équipe puisse le lire. Les clients diffusent via RPC ; seul le SERVEUR
+## (net_mode == NET_HOST) écrit sur disque.
+signal feedback_stored
+
+## Fichier persistant des suggestions écrit par le serveur. Sur le VPS, res://
+## pointe vers /srv/lastclan, donc le fichier devient /srv/lastclan/outbox/
+## suggestions.jsonl — facile à lire (cat …). Comme le dossier outbox/ n'est PAS
+## suivi par Git, il survit aux `git reset --hard`. Sur les autres plateformes
+## (dev/desktop), res:// est le dossier du projet, donc aussi lisible. Uniquement
+## écrit par le serveur (net_mode == NET_HOST).
+const FEEDBACK_PATH := "res://outbox/suggestions.jsonl"
+
+## Appelé par les clients pour soumettre une suggestion.
+func submit_feedback(author: String, text: String) -> void:
+	var clean := text.strip_edges()
+	if clean.is_empty():
+		return
+	_send_feedback.rpc(author.strip_edges(), clean)
+
+## RPC de feedback : exécuté sur tous les pairs ; SEUL le serveur (hôte) écrit
+## dans le fichier persistant.
+@rpc("any_peer", "call_local", "reliable")
+func _send_feedback(author: String, text: String) -> void:
+	if net_mode != NetMode.NET_HOST:
+		return
+	_append_feedback(author, text)
+
+## Écrit une suggestion dans le fichier persistant (JSON Lines). Fonction
+## indépendante du réseau → testable en isolation. Renvoie vrai si écrit.
+func _append_feedback(author: String, text: String) -> bool:
+	var dir_path := str(FEEDBACK_PATH.get_base_dir())
+	var err := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir_path))
+	if err != OK and err != ERR_ALREADY_EXISTS:
+		push_warning("Suggestion : impossible de créer %s (err %d)" % [dir_path, err])
+		return false
+	# Ouvre en lecture+écriture pour ne pas écraser, positionne en fin de fichier.
+	var f := FileAccess.open(FEEDBACK_PATH, FileAccess.READ_WRITE)
+	if f == null:
+		# Fichier n'existe pas encore : création en écriture.
+		f = FileAccess.open(FEEDBACK_PATH, FileAccess.WRITE)
+		if f == null:
+			push_warning("Suggestion : impossible d'écrire %s" % FEEDBACK_PATH)
+			return false
+	else:
+		f.seek_end()
+	f.store_line(JSON.stringify({
+		"ts": Time.get_unix_time_from_system(),
+		"name": author,
+		"text": text,
+	}))
+	f.close()
+	feedback_stored.emit()
+	_mp_log("FEEDBACK from=%s len=%d" % [author, text.length()])
+	return true
+
 ## --- Position de base ---
 
 ## Calcule la position de base d'un joueur.

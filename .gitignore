@@ -17,3 +17,4 @@ export.cfg
 # Dossiers de sauvegarde temporaires
 .git-/
 .github-/
+outbox/

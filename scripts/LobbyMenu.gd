@@ -17,19 +17,20 @@ const SERVERS_JSON := "res://servers.json"
 var _servers: Array[Dictionary] = []
 
 var _status_label: Label
-var _players_box: VBoxContainer
-var _chat_log: RichTextLabel
-var _chat_input: LineEdit
-var _launch_button: Button
 var _name_input: LineEdit
 var _create_code_input: LineEdit
 var _join_code_input: LineEdit
 var _recent_box: VBoxContainer
-var _invite_button: Button
 var _offline_button: Button
-var _servers_box: VBoxContainer
 
 var _recent_rooms: Array[String] = []
+
+## Gros bouton « Jouer » (serveur officiel).
+var _btn: Button
+## Boîte Aide / Comment jouer (repliable).
+var _help_box: VBoxContainer
+## État de repli de la section Aide.
+var _help_visible: bool = false
 
 ## Lance le jeu automatiquement dès la connexion (création ou rejoindre).
 var _auto_launch: bool = false
@@ -56,12 +57,9 @@ func _ready() -> void:
 	lobby.player_connected.connect(_on_player_connected)
 	lobby.player_disconnected.connect(_on_player_disconnected)
 	lobby.connection_status.connect(_on_status)
-	lobby.chat_received.connect(_on_chat)
 	lobby.server_disconnected.connect(_on_server_disconnected)
 	lobby.roster_changed.connect(_on_roster_changed)
-	_on_status("Prêt. Créez ou rejoignez une partie.")
-	_refresh_players()
-	_refresh_recent()
+	_on_status("Prêt. Choisissez votre nom puis cliquez sur Jouer.")
 	# Si on arrive via un lien (web) ou des args, on rejoint directement la room.
 	_auto_join_from_entry()
 
@@ -111,17 +109,10 @@ func _auto_join_from_entry() -> void:
 	if code.is_empty():
 		return
 	_on_status("Lien détecté : rejoint la partie « %s »…" % code)
-	_join_code_input.text = code
-	# En éditeur, le `--room` ne fait que pré-remplir le champ (l'utilisateur
-	# valide lui-même), SAUF si `--autostart` est fourni : permet d'automatiser
-	# un vrai test multijoueur en lançant plusieurs clients en ligne de commande
-	# qui rejoignent ET lancent la partie sans aucune interaction. Le serveur
-	# dédié, lui, lance toujours la partie automatiquement.
-	if OS.has_feature("editor") and not OS.get_cmdline_user_args().has("--autostart") and not is_server:
-		_on_status("Lien détecté : « %s ». Cliquez sur Rejoindre." % code)
-		return
-	_auto_launch = true
-	_connect(code)
+	# On rejoint directement la room ; ensuite le joueur clique sur Jouer (ou la
+	# partie se lance seule si --autostart / serveur dédié).
+	_auto_launch = OS.has_feature("editor") and OS.get_cmdline_user_args().has("--autostart")
+	_lobby().join_room(code)
 
 ## Lit un paramètre de l'URL web « ?cle=valeur ». Renvoie "" hors web.
 func _url_param(key: String) -> String:
@@ -142,9 +133,9 @@ func _build_ui() -> void:
 
 	# Sur mobile (écran étroit), on agrandit fortement toute l'interface pour la
 	# lisibilité : boutons plus hauts, police plus grande, champs plus épais.
-	_ui_scale = 1.45 if vp_size.x < 720.0 else 1.0
-	_btn_h = _gd(50)
-	_field_h = _gd(44)
+	_ui_scale = 1.6 if vp_size.x < 720.0 else 1.0
+	_btn_h = _gd(48)
+	_field_h = _gd(46)
 
 	# ---- Fond : dégradé sombre « royaume » + filet décoratif doré en haut.
 	var bg := ColorRect.new()
@@ -245,95 +236,58 @@ func _build_ui() -> void:
 	_lang.item_selected.connect(_on_language_selected)
 	lang_row.add_child(_lang)
 
-	# ---- Actions principales (gros boutons « jouer »).
-	# Sur mobile (portrait) on les empile pleine largeur ; en paysage côte à côte.
-	var is_mobile := vp_size.x < 720.0
-	if is_mobile:
-		var action_col := VBoxContainer.new()
-		action_col.add_theme_constant_override("separation", _gd(10))
-		vb.add_child(action_col)
-		_offline_button = _big_button("Jouer hors ligne", _on_offline_pressed, true)
-		_offline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		action_col.add_child(_offline_button)
-		_launch_button = _big_button("Lancer le jeu", _on_launch_pressed, false)
-		_launch_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		action_col.add_child(_launch_button)
-	else:
-		var action_row := HBoxContainer.new()
-		action_row.add_theme_constant_override("separation", _gd(10))
-		vb.add_child(action_row)
-		_offline_button = _big_button("Jouer hors ligne", _on_offline_pressed, true)
-		_offline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		action_row.add_child(_offline_button)
-		_launch_button = _big_button("Lancer le jeu", _on_launch_pressed, false)
-		_launch_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		action_row.add_child(_launch_button)
+	# ---- Actions principales (interface épurée : un seul gros « Jouer »).
+	# Boutons empilés pleine largeur pour une utilisation simple au doigt.
+	var actions := VBoxContainer.new()
+	actions.add_theme_constant_override("separation", _gd(12))
+	vb.add_child(actions)
 
-	# ---- Sélecteur de serveurs (modèle « royaumes »).
-	vb.add_child(_field_label("Choisir un royaume"))
-	_servers_box = VBoxContainer.new()
-	_servers_box.add_theme_constant_override("separation", _gd(8))
-	vb.add_child(_servers_box)
-	_build_server_list(_servers_box)
+	# GROS bouton « Jouer » : rejoint le serveur officiel puis lance la partie.
+	_btn = _big_button(_langs().t("ui.play"), _on_play_pressed, true)
+	_btn.custom_minimum_size = Vector2(0, _gd(66))
+	_btn.add_theme_font_size_override("font_size", _gd(26))
+	_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	actions.add_child(_btn)
 
-	# ---- Créer / Rejoindre.
-	var grid := GridContainer.new()
-	grid.columns = (2 if (vp_size.x >= 560 and vp_size.x > vp_size.y) else 1)
-	grid.add_theme_constant_override("h_separation", _gd(12))
-	grid.add_theme_constant_override("v_separation", _gd(12))
-	vb.add_child(grid)
+	# « Jouer hors ligne » : petit bouton secondaire en dessous.
+	_offline_button = _big_button(_langs().t("ui.play_offline"), _on_offline_pressed, false)
+	_offline_button.custom_minimum_size = Vector2(0, _gd(46))
+	_offline_button.add_theme_font_size_override("font_size", _gd(15))
+	_offline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	actions.add_child(_offline_button)
 
-	# --- Colonne Créer ---
-	var create_card := VBoxContainer.new()
-	create_card.add_theme_constant_override("separation", _gd(8))
-	grid.add_child(create_card)
-	var create_title := Label.new()
-	create_title.text = "Créer une partie"
-	create_title.add_theme_font_size_override("font_size", _gd(18))
-	create_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
-	create_card.add_child(create_title)
-	_create_code_input = LineEdit.new()
-	_create_code_input.placeholder_text = "Nom (vide = auto)"
-	_create_code_input.custom_minimum_size = Vector2(0, _field_h)
-	_stylize_field(_create_code_input)
-	create_card.add_child(_create_code_input)
-	var create_btn := _big_button("Créer et lancer", _on_create_pressed, true)
-	create_card.add_child(create_btn)
-	_invite_button = _big_button("Copier l'invitation", _on_copy_invite, false)
-	_invite_button.disabled = true
-	_invite_button.custom_minimum_size = Vector2(0, _gd(46))
-	create_card.add_child(_invite_button)
-	if OS.has_feature("editor"):
-		var test_btn := _big_button("Lancer un 2e joueur (test)", _on_spawn_test_player, false)
-		test_btn.custom_minimum_size = Vector2(0, _gd(42))
-		create_card.add_child(test_btn)
+	# ---- Aide / Comment jouer (repliable).
+	var help_header := _big_button("❓ " + _langs().t("help.title"), _on_toggle_help, false)
+	help_header.custom_minimum_size = Vector2(0, _gd(48))
+	help_header.add_theme_font_size_override("font_size", _gd(16))
+	help_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	help_header.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	vb.add_child(help_header)
 
-	# --- Colonne Rejoindre ---
-	var join_card := VBoxContainer.new()
-	join_card.add_theme_constant_override("separation", _gd(8))
-	grid.add_child(join_card)
-	var join_title := Label.new()
-	join_title.text = "Rejoindre une partie"
-	join_title.add_theme_font_size_override("font_size", _gd(18))
-	join_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
-	join_card.add_child(join_title)
-	var join_row := HBoxContainer.new()
-	join_row.add_theme_constant_override("separation", _gd(8))
-	join_card.add_child(join_row)
-	_join_code_input = LineEdit.new()
-	_join_code_input.placeholder_text = "Code de la partie"
-	_join_code_input.custom_minimum_size = Vector2(0, _field_h)
-	_join_code_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_join_code_input.text_submitted.connect(_on_join_submitted)
-	_stylize_field(_join_code_input)
-	join_row.add_child(_join_code_input)
-	var join_btn := _big_button("Rejoindre", _on_join_pressed, true)
-	join_btn.custom_minimum_size = Vector2(0, _field_h)
-	join_row.add_child(join_btn)
-	join_card.add_child(_field_label("Parties récentes"))
-	_recent_box = VBoxContainer.new()
-	_recent_box.add_theme_constant_override("separation", _gd(6))
-	join_card.add_child(_recent_box)
+	_help_box = VBoxContainer.new()
+	_help_box.add_theme_constant_override("separation", _gd(8))
+	vb.add_child(_help_box)
+	var help_text := Label.new()
+	help_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	help_text.add_theme_font_size_override("font_size", _gd(15))
+	help_text.add_theme_color_override("font_color", Color(0.92, 0.88, 0.76))
+	help_text.add_theme_stylebox_override("normal", _big_panel_box())
+	var lines: Array[String] = [
+		"• " + _langs().t("help.alpha"),
+		"• " + _langs().t("help.objective"),
+		"• " + _langs().t("help.howto"),
+		"• " + _langs().t("help.suggest"),
+	]
+	help_text.text = "\n".join(lines)
+	_help_box.add_child(help_text)
+	_help_box.visible = _help_visible
+
+	# ---- Suggestions (persistantes côté serveur).
+	var suggest_btn := _big_button("💬 " + _langs().t("ui.suggest"), _open_suggestions, false)
+	suggest_btn.custom_minimum_size = Vector2(0, _gd(50))
+	suggest_btn.add_theme_font_size_override("font_size", _gd(18))
+	suggest_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(suggest_btn)
 
 	# ---- Statut de connexion.
 	_status_label = Label.new()
@@ -343,38 +297,6 @@ func _build_ui() -> void:
 	_status_label.add_theme_constant_override("outline_size", _gd(4))
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(_status_label)
-
-	# ---- Joueurs (compact).
-	vb.add_child(_field_label("Joueurs dans la partie"))
-	var players_scroll := ScrollContainer.new()
-	players_scroll.custom_minimum_size = Vector2(0, _gd(90))
-	_players_box = VBoxContainer.new()
-	_players_box.add_theme_constant_override("separation", _gd(6))
-	_players_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	players_scroll.add_child(_players_box)
-	vb.add_child(players_scroll)
-
-	# ---- Chat (compact, replié en liste).
-	vb.add_child(_field_label("Chat"))
-	_chat_log = RichTextLabel.new()
-	_chat_log.bbcode_enabled = true
-	_chat_log.custom_minimum_size = Vector2(0, _gd(130))
-	_chat_log.scroll_following = true
-	_stylize_panel_container(_chat_log)
-	vb.add_child(_chat_log)
-	var chat_row := HBoxContainer.new()
-	chat_row.add_theme_constant_override("separation", _gd(8))
-	vb.add_child(chat_row)
-	_chat_input = LineEdit.new()
-	_chat_input.placeholder_text = "Écrivez un message…"
-	_chat_input.custom_minimum_size = Vector2(0, _field_h)
-	_chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_chat_input.text_submitted.connect(_on_chat_submitted)
-	_stylize_field(_chat_input)
-	chat_row.add_child(_chat_input)
-	var send_btn := _big_button("Envoyer", _on_chat_send, true)
-	send_btn.custom_minimum_size = Vector2(0, _field_h)
-	chat_row.add_child(send_btn)
 
 func _field_label(text: String) -> Label:
 	var l := Label.new()
@@ -572,20 +494,6 @@ func _apply_name() -> void:
 	# Embarque la langue du joueur pour l'affichage international (roster/chat).
 	_lobby().player_info["lang"] = _langs().language
 
-func _on_chat_send() -> void:
-	_send_chat_text()
-
-func _on_chat_submitted(_text: String) -> void:
-	_send_chat_text()
-
-func _send_chat_text() -> void:
-	var text := _chat_input.text
-	if text.strip_edges().is_empty():
-		return
-	_lobby().send_chat(text)
-	_chat_input.clear()
-	_chat_input.grab_focus()
-
 func _on_launch_pressed() -> void:
 	_auto_launch = false
 	_launch_game()
@@ -605,58 +513,54 @@ func _launch_game() -> void:
 	_apply_name()
 	get_tree().change_scene_to_file(MAIN_SCENE)
 
+## « Jouer » : applique le nom, trouve le 1er (seul) serveur de servers.json puis
+## se connecte à sa room officielle et lance la partie automatiquement.
+func _on_play_pressed() -> void:
+	_apply_name()
+	_load_servers()
+	if _servers.is_empty():
+		_on_status("Aucun serveur officiel configuré (servers.json).")
+		return
+	var first: Dictionary = _servers[0]
+	var transport := str(first.get("transport", "ws"))
+	var address := str(first.get("address", ""))
+	var room := str(first.get("room", ""))
+	if address.is_empty():
+		_on_status("Le serveur officiel n'a pas d'adresse configurée.")
+		return
+	_on_status("Connexion au royaume officiel « %s » (%s)…" % [room, address])
+	_auto_launch = true
+	_lobby().join_server(transport, address, room)
+
+## Affiche / replie la section Aide / Comment jouer.
+func _on_toggle_help() -> void:
+	_help_visible = not _help_visible
+	if _help_box != null:
+		_help_box.visible = _help_visible
+
+## Ouvre l'écran de suggestions persistantes (serveur).
+func _open_suggestions() -> void:
+	_apply_name()
+	get_tree().change_scene_to_file("res://scenes/SuggestionMenu.tscn")
+
 ## --- Réactions aux signaux ---
 
 func _on_player_connected(peer_id: int, _info: Dictionary) -> void:
-	_refresh_players()
-	_update_launch()
 	if _auto_launch and _lobby().is_online and peer_id == _lobby().my_id:
 		_auto_launch = false
 		_launch_game()
 
 func _on_player_disconnected(_peer_id: int) -> void:
-	_refresh_players()
+	pass
 
 func _on_status(text: String) -> void:
 	_status_label.text = text
-	# Dès qu'on est connecté, on active la copie d'invitation.
-	if _lobby().is_online and not _lobby().room_id.is_empty():
-		_invite_button.disabled = false
 
 func _on_server_disconnected() -> void:
-	_refresh_players()
-	_update_launch()
+	_on_status("Déconnecté du serveur.")
 
 func _on_roster_changed() -> void:
-	_refresh_players()
-	_update_launch()
-
-func _on_chat(author: String, text: String, src_lang: String = "en") -> void:
-	# Chat international : on affiche dans la langue du joueur via le moteur de
-	# traduction (Translator). Tant que le moteur est inactif, texte original.
-	var res: Dictionary = _translator().translate(text, src_lang)
-	var shown: String = res["text"]
-	var flag: String = _langs().code_to_flag(src_lang)
-	if res["auto"]:
-		_chat_log.append_text("[b]%s[/b] %s : %s  [i](%s)[/i]\n" % [flag, author, shown, _langs().lang_name(src_lang)])
-	else:
-		_chat_log.append_text("[b]%s[/b] %s : %s\n" % [flag, author, shown])
-
-func _refresh_players() -> void:
-	for child in _players_box.get_children():
-		child.queue_free()
-	var ids: Array = _lobby().players.keys()
-	ids.sort()
-	for id in ids:
-		var info: Dictionary = _lobby().players[id]
-		var pname := str(info.get("name", "Joueur %d" % id))
-		var me := " (vous)" if (_lobby().is_online and id == _lobby().my_id) else ""
-		var l := Label.new()
-		l.text = "• %s%s" % [pname, me]
-		_players_box.add_child(l)
-
-func _update_launch() -> void:
-	_launch_button.disabled = not _lobby().is_online
+	pass
 
 ## --- Parties récentes (mémoire locale) ---
 
