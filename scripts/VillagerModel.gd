@@ -7,6 +7,10 @@ extends Node3D
 
 const MODEL_BASE := "res://assets/models/characters/Paysan Chibi+Animations/Meshy_AI_chibi_character_gamer_biped_Character_output.glb"
 
+## Vrai pour un soldat, faux pour un paysan. Permet de choisir le modèle 3D
+## configuré dans le panel admin (Apparence → Soldat / Paysan).
+@export var is_soldier: bool = false
+
 ## Teinte appliquée au corps du modèle (pour distinguer les unités partageant
 ## le même modèle, ex. soldat). Blanc = aucune teinte.
 @export var tint: Color = Color.WHITE
@@ -25,10 +29,22 @@ func _ready() -> void:
 	_build()
 
 ## Crée le sous-arbre du modèle et assemble les animations.
+## Chemin du modèle 3D : prend la valeur configurée (panel admin → Apparence)
+## si renseignée, sinon le modèle par défaut du jeu.
+func _model_path() -> String:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		var key := "apparence.soldat.modele" if is_soldier else "apparence.paysan.modele"
+		var v = gc.get_value(key)
+		if v != null and str(v) != "":
+			return str(v)
+	return MODEL_BASE
+
 func _build() -> void:
-	var base: PackedScene = load(MODEL_BASE)
+	var model_path := _model_path()
+	var base: PackedScene = load(model_path)
 	if base == null:
-		push_warning("VillagerModel : modèle de base introuvable.")
+		push_warning("VillagerModel : modèle de base introuvable : " + model_path)
 		return
 	_model = base.instantiate()
 	_model.name = "Model"

@@ -574,12 +574,27 @@ func _spawn_decor() -> void:
 	if gc != null and gc.get_value("monde.herbe_densite") != null:
 		grass_count = int(gc.get_value("monde.herbe_densite"))
 	# Herbe : dense, petits modèles, dispersés sur toute la carte.
+	# Si une image de décor herbe est fournie (panel admin → Apparence), on la
+	# pose en billboard avec les dimensions largeur x hauteur ; sinon touffes 3D.
+	var grass_image: String = ""
+	var grass_w := 1.0
+	var grass_h := 1.0
+	if gc != null:
+		if gc.get_value("apparence.decor.herbe.image") != null:
+			grass_image = str(gc.get_value("apparence.decor.herbe.image"))
+		if gc.get_value("apparence.decor.herbe.largeur") != null:
+			grass_w = float(gc.get_value("apparence.decor.herbe.largeur"))
+		if gc.get_value("apparence.decor.herbe.hauteur") != null:
+			grass_h = float(gc.get_value("apparence.decor.herbe.hauteur"))
 	for i in grass_count:
 		var pos := _random_decor_pos()
 		if pos == Vector3.INF:
 			continue
 		var d := Decor.new()
-		d.build_grass()
+		if grass_image != "":
+			d.build_grass_image(grass_image, grass_w, grass_h)
+		else:
+			d.build_grass()
 		d.add_to_group("decor")
 		decor_root.add_child(d)
 		d.global_position = pos
