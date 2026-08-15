@@ -185,12 +185,17 @@ func _apply_cfg_overrides(cfg: Dictionary) -> void:
 		"upg_wood": pre + "ameli_bois",
 		"upg_stone": pre + "ameli_pierre",
 		"attack_damage": pre + "degats",
+		"footprint": pre + "taille",
+		"max_level": pre + "niveaux",
 	}
 	if type == Type.HOUSE and gc.get_value(pre + "pop") != null:
 		cfg["pop_provided"] = gc.get_value(pre + "pop")
 	for src in map:
 		if gc.get_value(map[src]) != null and cfg.has(src):
 			cfg[src] = gc.get_value(map[src])
+	if gc.get_value(pre + "pv") != null:
+		max_hp = int(gc.get_value(pre + "pv"))
+		hp = clampi(hp, 0, max_hp)
 	if type == Type.TOWN_HALL:
 		if gc.get_value("recrutement.paysan.or") != null:
 			cfg["recruit_gold"] = gc.get_value("recrutement.paysan.or")

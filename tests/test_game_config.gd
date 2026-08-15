@@ -76,3 +76,25 @@ func test_param_descriptions_present() -> void:
 		push_error("CHECK FAILED: description du param vitesse paysan absente")
 	if n.param_desc("clé.inconnue") != "":
 		push_error("CHECK FAILED: devrait retourner vide pour une clé inconnue")
+
+func test_new_categories_present() -> void:
+	var n := _node()
+	var cats: Array = n.categories()
+	if not cats.has("Caméra"):
+		push_error("CHECK FAILED: catégorie Caméra absente")
+	if not cats.has("Monde"):
+		push_error("CHECK FAILED: catégorie Monde absente")
+
+func test_new_default_values() -> void:
+	var n := _node()
+	n.reset()
+	if n.get_value("batiment.hdv.taille") != 2:
+		push_error("CHECK FAILED: HDV empreinte défaut != 2")
+	if n.get_value("batiment.hdv.niveaux") != 6:
+		push_error("CHECK FAILED: HDV niveaux défaut != 6")
+	if n.get_value("batiment.hdv.pv") != 300:
+		push_error("CHECK FAILED: HDV pv défaut != 300")
+	if n.get_value("camera.zoom_max") != 220.0:
+		push_error("CHECK FAILED: camera.zoom_max défaut != 220")
+	if n.get_value("monde.bois_max") != 80:
+		push_error("CHECK FAILED: monde.bois_max défaut != 80")

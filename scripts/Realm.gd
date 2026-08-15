@@ -35,11 +35,17 @@ func zone() -> String:
 ## Bonus de récolte (%) appliqué à tout le royaume selon la prospérité.
 ## En prospérité : +25% de rendement (récompense la coopération).
 ## En déclin : -15% (pénalise l'écosystème dégradé).
+## Ces multiplicateurs sont réglables dans le panneau admin.
 func harvest_bonus() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
 	match zone():
 		"prosperity":
+			if gc != null and gc.get_value("royaume.prosperite_bonus") != null:
+				return float(gc.get_value("royaume.prosperite_bonus"))
 			return 1.25
 		"decline":
+			if gc != null and gc.get_value("royaume.declin_penalite") != null:
+				return float(gc.get_value("royaume.declin_penalite"))
 			return 0.85
 	return 1.0
 
@@ -52,7 +58,11 @@ func activity(amount: float) -> void:
 ## Drain progressif pour que la jauge redescende si le royaume stagne.
 func tick(delta: float) -> void:
 	if value > 0.0:
-		value = maxf(value - SETTLE_RATE * delta, 0.0)
+		var rate: float = SETTLE_RATE
+		var gc := get_node_or_null("/root/GameConfig")
+		if gc != null and gc.get_value("royaume.fonte_parseconde") != null:
+			rate = float(gc.get_value("royaume.fonte_parseconde"))
+		value = maxf(value - rate * delta, 0.0)
 		realm_changed.emit(value, zone())
 
 ## Applique la valeur reçue du serveur (sync réseau).

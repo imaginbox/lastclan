@@ -434,15 +434,30 @@ func _spawn_resource_node(pos: Vector3, forced_type: int = -1) -> Node3D:
 		else: t = ResourceNode.ResourceType.GOLD
 	var node: Node3D = RESOURCE_SCENE.instantiate()
 	node.set("resource_type", t)
+	# Quantités max configurables via le panneau admin (Monde).
+	var gc := get_node_or_null("/root/GameConfig")
+	var wood_max := 80
+	var stone_max := 60
+	var gold_max := 100
+	var food_max := 40
+	if gc != null:
+		if gc.get_value("monde.bois_max") != null:
+			wood_max = int(gc.get_value("monde.bois_max"))
+		if gc.get_value("monde.pierre_max") != null:
+			stone_max = int(gc.get_value("monde.pierre_max"))
+		if gc.get_value("monde.or_max") != null:
+			gold_max = int(gc.get_value("monde.or_max"))
+		if gc.get_value("monde.nourriture_max") != null:
+			food_max = int(gc.get_value("monde.nourriture_max"))
 	match t:
 		ResourceNode.ResourceType.GOLD:
-			node.set("max_amount", 100)
+			node.set("max_amount", gold_max)
 		ResourceNode.ResourceType.WOOD:
-			node.set("max_amount", 80)
+			node.set("max_amount", wood_max)
 		ResourceNode.ResourceType.STONE:
-			node.set("max_amount", 60)
+			node.set("max_amount", stone_max)
 		ResourceNode.ResourceType.FOOD:
-			node.set("max_amount", 40)
+			node.set("max_amount", food_max)
 	node.set("starting_amount", node.get("max_amount"))
 	# Identifiant STABLE et DÉTERMINISTE : comme le monde est généré à partir de la
 	# même graine (même ordre de spawn), chaque client d'une room attribue le MÊME
@@ -553,8 +568,13 @@ func _sync_resource_amount(rid: int, new_amount: int) -> void:
 ## + de grands arbres décoratifs (non récoltables) pour le paysage. Concentration
 ## plus forte autour de la base.
 func _spawn_decor() -> void:
+	# Densité d'herbe configurable via le panneau admin (Monde).
+	var gc := get_node_or_null("/root/GameConfig")
+	var grass_count := 320
+	if gc != null and gc.get_value("monde.herbe_densite") != null:
+		grass_count = int(gc.get_value("monde.herbe_densite"))
 	# Herbe : dense, petits modèles, dispersés sur toute la carte.
-	for i in 320:
+	for i in grass_count:
 		var pos := _random_decor_pos()
 		if pos == Vector3.INF:
 			continue
@@ -736,6 +756,13 @@ func _nearest_resource_node(from_pos: Vector3) -> ResourceNode:
 	return best
 
 # ============================================================ BÂTIMENTS / GRILLE
+
+func _build_cfg(t: Building.Type) -> Dictionary:
+	# Coûts/empreinte/niveaux/PV d'un type de bâtiment, avec surcharges admin.
+	var tmp := Building.new()
+	tmp.type = t
+	tmp.level = 1
+	return tmp._cfg()
 
 func _instantiate_building(t: Building.Type) -> Building:
 	var b := Building.new()
@@ -1340,10 +1367,11 @@ func _confirm_ghost() -> void:
 		_moving_building = null
 	else:
 		# Construction : achat + placement.
-		var cost: Dictionary = Building.TYPES[_pending_type]
+		# Coût via _cfg() pour que les prix du panneau admin s'appliquent.
+		var cost: Dictionary = _build_cfg(_pending_type)
 		var rm := get_node("/root/ResourceManager")
 		var stone_cost: int = int(cost.get("cost_stone", 0))
-		if rm.spend_full(cost["cost_gold"], cost["cost_wood"], stone_cost):
+		if rm.spend_full(int(cost.get("cost_gold", 0)), int(cost.get("cost_wood", 0)), stone_cost):
 			var t: Building.Type = _pending_type as Building.Type
 			_pending_type = -1
 			_ghost.queue_free()

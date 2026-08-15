@@ -79,12 +79,19 @@ func _atk_cd() -> float:
 		return float(gc.get_value("unite.soldat.cadence"))
 	return ATTACK_COOLDOWN
 
+## Gravité configurable (panneau admin, jeu.gravite, défaut -20) — positive au sol.
+func _gravity() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return -float(gc.get_value("jeu.gravite"))
+	return 20.0
+
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
 	# GRAVITÉ : plaquer le soldat au sol (comme le paysan). Sans elle le corps
 	# peut dériver verticalement pendant le déplacement et sembler disparaître.
 	if not is_on_floor():
-		velocity.y -= 20.0 * delta
+		velocity.y -= _gravity() * delta
 	else:
 		velocity.y = -2.0
 	match _state:

@@ -145,12 +145,19 @@ func _atk_damage() -> int:
 		return int(gc.get_value("unite.paysan.degats"))
 	return ATTACK_DAMAGE
 
+## Gravité configurable (panneau admin, jeu.gravite, défaut -20) — positive au sol.
+func _gravity() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return -float(gc.get_value("jeu.gravite"))
+	return 20.0
+
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
 	
 	# GRAVITÉ : On applique la gravité par défaut pour que le paysan tombe sur le sol.
 	if not is_on_floor():
-		velocity.y -= 20.0 * delta # Gravité plus forte pour plaquer au sol
+		velocity.y -= _gravity() * delta # Gravité plus forte pour plaquer au sol
 	else:
 		velocity.y = -2.0 # Pression constante vers le bas
 	

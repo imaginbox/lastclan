@@ -34,6 +34,9 @@ func _ready() -> void:
 		v = gc.get_value("jeu.ressources.initial_pierre")
 		if v != null:
 			stone = int(v)
+		v = gc.get_value("jeu.ressources.initial_nourriture")
+		if v != null:
+			food = int(v)
 	resources_changed.emit(gold, wood, stone, food)
 	population_changed.emit(population, population_cap)
 

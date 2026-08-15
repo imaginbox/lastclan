@@ -30,7 +30,27 @@ var _pinch_dist := 0.0              # distance entre les 2 doigts (pour le zoom)
 func _ready() -> void:
 	# Projection orthographique : pas de déformation en perspective.
 	projection = Camera3D.PROJECTION_ORTHOGONAL
+	_apply_config()
 	_apply()
+
+## Applique les réglages caméra du panneau admin (si GameConfig est présent).
+func _apply_config() -> void:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc == null:
+		return
+	var v: Variant
+	v = gc.get_value("camera.zoom_min")
+	if v != null:
+		min_size = float(v)
+	v = gc.get_value("camera.zoom_max")
+	if v != null:
+		max_size = float(v)
+	v = gc.get_value("camera.vitesse_zoom")
+	if v != null:
+		zoom_speed = float(v)
+	v = gc.get_value("camera.inclinaison")
+	if v != null:
+		pitch_deg = float(v)
 
 ## Déplace le point focal de la caméra vers la base du joueur (multijoueur).
 func set_pivot(point: Vector3) -> void:
