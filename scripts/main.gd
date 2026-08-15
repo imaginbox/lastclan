@@ -1820,22 +1820,23 @@ func _setup_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 40
 	add_child(layer)
-	# Barre de ressources CoC en haut : pillules horizontales (or/bois/pierre/
-	# nourriture/population). Full-width, centred, s'adapte portrait/paysage.
+	# Barre de ressources style Clash of Clans en haut : chaque ressource dans
+	# son cartouche arrondi (fond bois + liseré doré), icône à gauche, valeur à
+	# droite. La rangée est centrée, comme l'interface CoC.
 	var top := PanelContainer.new()
 	top.name = "ResourceBar"
 	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	top.offset_top = 10.0 * _ui_scale
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Aucun fond : les pillules (icône + valeur) flottent directement sur le jeu.
+	# Conteneur transparent : seuls les cartouches individuels ont un fond.
 	top.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	layer.add_child(top)
 	var hb := HBoxContainer.new()
-	hb.alignment = BoxContainer.ALIGNMENT_BEGIN
-	hb.add_theme_constant_override("separation", int(6 * _ui_scale))
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_theme_constant_override("separation", int(8 * _ui_scale))
 	top.add_child(hb)
-	# Pillules : icône image + valeur, sans fond (CoC, ressources principales).
+	# Cartouches des 4 ressources principales (CoC).
 	_hud_gold_label = _make_resource_pill(hb, "gold", Color(1.0, 0.85, 0.3))
 	_hud_wood_label = _make_resource_pill(hb, "wood", Color(0.75, 0.55, 0.35))
 	_hud_stone_label = _make_resource_pill(hb, "stone", Color(0.7, 0.72, 0.75))
@@ -1916,29 +1917,47 @@ func _setup_hud() -> void:
 	# Bouton pour ouvrir le panneau Clan (mobile + PC).
 	_setup_clan_button()
 
-## Crée une « pillule » CoC : icône image + valeur, SANS fond semi-transparent.
-## L'icône est un vrai sprite (visible sur navigateur, contrairement aux émojis).
+## Crée un « cartouche » de ressource style Clash of Clans : un petit panneau
+## arrondi (fond bois sombre + liseré doré) contenant une icône à gauche et la
+## valeur à droite. L'icône est un sprite (visible sur navigateur, pas d'émoji)
+## et reste remplaçable par tes propres PNG. Retourne le Label de la valeur.
 func _make_resource_pill(parent: HBoxContainer, icon_key: String, _color: Color) -> Label:
+	var card := PanelContainer.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var cs := StyleBoxFlat.new()
+	cs.bg_color = Color(0.16, 0.12, 0.09, 0.92)          # bois sombre CoC
+	cs.corner_radius_top_left = 7
+	cs.corner_radius_top_right = 7
+	cs.corner_radius_bottom_left = 7
+	cs.corner_radius_bottom_right = 7
+	cs.border_color = Color(0.85, 0.66, 0.3, 0.95)       # liseré doré
+	cs.set_border_width_all(2)
+	cs.content_margin_left = 8 * _ui_scale
+	cs.content_margin_right = 10 * _ui_scale
+	cs.content_margin_top = 3 * _ui_scale
+	cs.content_margin_bottom = 3 * _ui_scale
+	card.add_theme_stylebox_override("panel", cs)
+	parent.add_child(card)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(4 * _ui_scale))
+	row.add_theme_constant_override("separation", int(5 * _ui_scale))
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.add_child(row)
 	var tex := TextureRect.new()
 	tex.texture = _icon(icon_key)
-	var size: float = 20.0 * _ui_scale
+	var size: float = 22.0 * _ui_scale
 	tex.custom_minimum_size = Vector2(size, size)
 	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(tex)
 	var lab := Label.new()
-	lab.add_theme_font_size_override("font_size", int(15 * _ui_scale))
-	lab.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
-	lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	lab.add_theme_constant_override("outline_size", 5)
+	lab.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	lab.add_theme_color_override("font_color", Color(1.0, 0.96, 0.8))
+	lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lab.add_theme_constant_override("outline_size", 6)
 	lab.text = "0"
 	row.add_child(lab)
-	parent.add_child(row)
 	return lab
 
 ## Chargement en cache des icônes de ressources (sprites, pas d'émojis).
