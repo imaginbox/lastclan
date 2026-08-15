@@ -108,6 +108,13 @@ var _clan_tag_input: LineEdit = null
 var _clan_join_input: LineEdit = null
 var _clan_list_label: Label = null
 
+## --- Messages in-game (toasts) ---
+## Les notifications (_notify) et les messages de chat reçus s'affichent dans un
+## emplacement dédié du jeu (haut, sous la barre de ressources), pour que le joueur
+## soit informé même en plein jeu (et pas juste dans la console).
+var _toast_box: VBoxContainer = null
+var _toast_layer: CanvasLayer = null
+
 ## --- Nombres de récolte flottants (HUD cartoon) ---
 var _float_root: CanvasLayer = null
 
@@ -183,6 +190,8 @@ func _ready() -> void:
 	_setup_build_ui()
 	_setup_building_panel()
 	_setup_order_button()
+	# Les messages de chat reçus d'autres joueurs s'affichent en jeu (toast).
+	_connect_chat_toasts()
 	# Applique une première fois le layout selon l'orientation détectée.
 	_apply_orientation_layout()
 	# Le monde se construit une fois la position de base connue :
@@ -1902,11 +1911,13 @@ func _setup_hud() -> void:
 	clan_row.add_child(_hud_clan_label)
 	_hud_extra_box.add_child(clan_row)
 	# Liaisons données -> UI.
-	if get_node_or_null("/root/Realm") != null:
-		Realm.realm_changed.connect(_on_realm_changed)
-		_on_realm_changed(Realm.value, Realm.zone())
-	if get_node_or_null("/root/Clans") != null:
-		Clans.my_clan_changed.connect(_on_my_clan_changed)
+	var realm := get_node_or_null("/root/Realm")
+	if realm != null:
+		realm.realm_changed.connect(_on_realm_changed)
+		_on_realm_changed(realm.value, realm.zone())
+	var clans := get_node_or_null("/root/Clans")
+	if clans != null:
+		clans.my_clan_changed.connect(_on_my_clan_changed)
 		_on_my_clan_changed()
 	var rm := get_node("/root/ResourceManager")
 	rm.resources_changed.connect(_on_resources_changed)
@@ -1914,6 +1925,8 @@ func _setup_hud() -> void:
 	_on_resources_changed(rm.gold, rm.wood, rm.stone, rm.food)
 	_on_population_changed(rm.population, rm.population_cap)
 	_refresh_unit_counts()
+	# Emplacement des messages in-game : toast sous la barre de ressources.
+	_setup_toasts()
 	# Bouton pour ouvrir le panneau Clan (mobile + PC).
 	_setup_clan_button()
 
@@ -2072,6 +2085,99 @@ func _refresh_unit_counts() -> void:
 
 func _notify(text: String) -> void:
 	print(text)
+	# Affiche le message dans le jeu (toast), pas seulement la console.
+	_push_toast(text)
+
+## Configure l'emplacement des messages in-game (toasts). C'est un conteneur qui
+## s'empile sous la barre de ressources en haut, au centre. Chaque toast est un
+## petit cartouche bois + dorure CoC qui disparaît tout seul après quelques secondes.
+func _setup_toasts() -> void:
+	_toast_layer = CanvasLayer.new()
+	_toast_layer.name = "Toasts"
+	_toast_layer.layer = 42
+	add_child(_toast_layer)
+	# Panneau d'ancrage pleine largeur en haut, sous la barre de ressources.
+	# NB : PRESET_TOP_WIDE donne une hauteur nulle — on doit prévoir une vraie
+	# hauteur (offset_bottom > offset_top) sinon les toasts sont rognés à 0 px.
+	var anchor := Control.new()
+	anchor.name = "ToastAnchor"
+	anchor.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Descendu sous la barre de ressources (~56 px) ET sous la barre d'infos
+	# secondaires (Population/Royaume/Clan, ~110 px sur PC) pour ne rien masquer.
+	# La hauteur (offset_top..offset_bottom) laisse de la place à la pile.
+	anchor.offset_top = int(116 * _ui_scale)
+	anchor.offset_bottom = int(116 * _ui_scale) + 400 * int(_ui_scale)
+	_toast_layer.add_child(anchor)
+	# Un CenterContainer recentre horizontalement la pile de toasts (qui garde
+	# ainsi sa largeur naturelle, au lieu de s'étirer sur tout l'écran).
+	var center := CenterContainer.new()
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	anchor.add_child(center)
+	_toast_box = VBoxContainer.new()
+	_toast_box.name = "ToastBox"
+	_toast_box.add_theme_constant_override("separation", int(6 * _ui_scale))
+	_toast_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(_toast_box)
+
+## Affiche un message en jeu sous la barre de ressources. Le cartouche apparaît,
+## reste un court instant puis s'estompe et se retire. `color` teinte la bordure
+## (doré par défaut, bleu pour les messages d'autres joueurs).
+func _push_toast(text: String, color: Color = Color(0.85, 0.66, 0.3)) -> void:
+	if _toast_box == null:
+		return
+	# Un seul toast à la fois : on retire les précédents (évite l'accumulation).
+	for kid in _toast_box.get_children():
+		kid.queue_free()
+
+	var card := PanelContainer.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.12, 0.1, 0.08, 0.94)   # bois sombre
+	sb.border_color = color                        # liseré doré (ou bleu chat)
+	sb.set_border_width_all(2)
+	sb.corner_radius_top_left = 8
+	sb.corner_radius_top_right = 8
+	sb.corner_radius_bottom_left = 8
+	sb.corner_radius_bottom_right = 8
+	sb.content_margin_left = int(14 * _ui_scale)
+	sb.content_margin_right = int(14 * _ui_scale)
+	sb.content_margin_top = int(6 * _ui_scale)
+	sb.content_margin_bottom = int(6 * _ui_scale)
+	card.add_theme_stylebox_override("panel", sb)
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.72))
+	lbl.add_theme_constant_override("outline_size", 6)
+	lbl.add_theme_color_override("font_outline_color", Color(0.1, 0.07, 0.04, 0.9))
+	card.add_child(lbl)
+	_toast_box.add_child(card)
+
+	# Disparition automatique après ~2.5 s avec une légère estompe.
+	if not is_inside_tree():
+		return
+	var tw := create_tween()
+	tw.tween_interval(2.2)
+	tw.tween_method(_toast_fade.bind(card), 1.0, 0.0, 0.35)
+	tw.tween_callback(card.queue_free)
+
+## Fondu d'un toast (callback tween).
+func _toast_fade(alpha: float, card: PanelContainer) -> void:
+	if card == null or not is_instance_valid(card):
+		return
+	card.modulate.a = alpha
+
+## Affiche les messages de chat des autres joueurs comme des toasts en jeu.
+func _connect_chat_toasts() -> void:
+	if not Lobby.chat_received.is_connected(_on_ingame_chat):
+		Lobby.chat_received.connect(_on_ingame_chat)
+
+func _on_ingame_chat(author: String, text: String, _src_lang: String) -> void:
+	if _toast_box == null:
+		return
+	# Bleu clair pour distinguer les messages des autres joueurs des infos locales.
+	_push_toast("%s : %s" % [author, text], Color(0.5, 0.75, 1.0))
 
 ## Inspecteur : affiche les états du personnage sélectionné dans le panneau
 ## de droite (mobile + PC). Donne au joueur un retour clair sur ce qu'il fait.

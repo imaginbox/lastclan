@@ -86,6 +86,11 @@ const TYPES := {
 	},
 }
 const HEIGHT := 2.0   # hauteur de base d'un bâtiment (mètres)
+## Multiplicateur visuel du sprite de l'hôtel de ville : on l'affiche PLUS LARGE
+## que son empreinte au sol (qui reste celle de la collision). L'image étant
+## grande et la HDV étant le centre névralgique du village, on la met bien en
+## valeur (1.5x la largeur d'une case).
+const HDV_VISUAL_SCALE := 1.5
 
 var type: Type = Type.HOUSE
 var level: int = 1
@@ -328,7 +333,9 @@ func _build_visual() -> void:
 		# sprite serait démesuré (plus de 10 m) et sa base s'enfoncerait sous le
 		# sol, qui le sectionnait à mi-hauteur (« bâtiment coupé »).
 		if tsize.x > 0:
-			_sprite.pixel_size = f / float(tsize.x)
+			# HDV_VISUAL_SCALE (1.5) agrandit l'affichage au-delà de l'empreinte pour
+			# que la HDV domine le village ; la collision garde l'empreinte réelle.
+			_sprite.pixel_size = (f * HDV_VISUAL_SCALE) / float(tsize.x)
 		else:
 			_sprite.pixel_size = 1.0
 		# La hauteur affichée en mètres = tsize.y * pixel_size. On la déduit pour
