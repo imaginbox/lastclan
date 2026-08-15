@@ -46,6 +46,27 @@ func build_grass() -> void:
 	var ps := GRASS_POOL[randi() % GRASS_POOL.size()]
 	_instantiate(ps)
 
+## Construit un tapis d'herbe en IMAGE (Sprite3D billboard) avec des dimensions
+## explicites largeur x hauteur (en mètres). Utilisé quand le panel admin fournit
+## une image pour le décor herbe (personnages = 3D, décor = images).
+func build_grass_image(image_path: String, width: float, height: float) -> void:
+	var tex := load(image_path) as Texture2D
+	if tex == null:
+		# Repli silencieux sur la touffe 3D si l'image n'existe pas.
+		build_grass()
+		return
+	var spr := Sprite3D.new()
+	spr.name = "GrassImage"
+	spr.texture = tex
+	spr.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	spr.centered = true
+	spr.pixel_size = 1.0
+	# pixel_size=1.0 → la texture occupe tex.width x tex.height unités monde.
+	# On force exactement largeur x hauteur en mètres via l'échelle.
+	spr.scale = Vector3(width / float(tex.get_width()), height / float(tex.get_height()), 1.0)
+	spr.position.y = height * 0.5
+	add_child(spr)
+
 ## Construit un arbre décoratif (modèle aléatoire), plus grand que l'herbe.
 func build_tree() -> void:
 	var ps := TREE_POOL[randi() % TREE_POOL.size()]

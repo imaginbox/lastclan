@@ -40,6 +40,10 @@ func _ready() -> void:
 	if gc != null:
 		max_hp = int(gc.get_value("unite.soldat.pv"))
 		hp = max_hp
+	# Marque le modèle comme soldat (choix du modèle 3D dans le panel admin).
+	var mod := get_node_or_null("Model") as VillagerModel
+	if mod != null:
+		mod.is_soldier = true
 	# AnimationPlayer fourni par le modèle (VillagerModel).
 	var model := get_node_or_null("Model") as VillagerModel
 	if model != null:

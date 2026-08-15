@@ -212,6 +212,31 @@ const REGISTRY: Array = [
 	{"key": "monde.nourriture_max", "kind": Kind.INT, "cat": "Monde",
 	 "label": "Nourriture max par buisson", "def": 40, "min": 10, "max": 500},
 
+	# ------------------------- APPARENCE / ASSETS --------------------------
+	# Personnages = modèles 3D (.glb/.gltf) ; décor = images (Sprite3D) avec
+	# dimensions réglables. Les champs "chemin" pointent vers un asset EXISTANT
+	# du projet (res://) ; on peut changer de modèle/image en indiquant un autre
+	# asset déjà présent dans res:// (l'upload de nouveaux fichiers arrivera).
+	{"key": "apparence.paysan.modele", "kind": Kind.STRING, "cat": "Apparence",
+	 "label": "Paysan — modèle 3D (res://)", "def": "", "min": 0, "max": 0,
+	 "desc":"Chemin du modèle 3D du paysan. Vide = modèle par défaut du jeu."},
+	{"key": "apparence.soldat.modele", "kind": Kind.STRING, "cat": "Apparence",
+	 "label": "Soldat — modèle 3D (res://)", "def": "", "min": 0, "max": 0,
+	 "desc":"Chemin du modèle 3D du soldat. Vide = modèle par défaut du jeu."},
+	{"key": "apparence.hdv.image", "kind": Kind.STRING, "cat": "Apparence",
+	 "label": "Hôtel de ville — image (res://)", "def": "", "min": 0, "max": 0,
+	 "desc":"Image affichée en billboard pour la HDV. Vide = images HDV par niveau."},
+	{"key": "apparence.decor.herbe.image", "kind": Kind.STRING, "cat": "Apparence",
+	 "label": "Décor herbe — image (res://)", "def": "", "min": 0, "max": 0,
+	 "desc":"Image du tapis d'herbe. Vide = touffes d'herbe 3D du jeu."},
+	{"key": "apparence.decor.herbe.largeur", "kind": Kind.FLOAT, "cat": "Apparence",
+	 "label": "Décor herbe — largeur (m)", "def": 1.0, "min": 0.1, "max": 20.0, "step": 0.1},
+	{"key": "apparence.decor.herbe.hauteur", "kind": Kind.FLOAT, "cat": "Apparence",
+	 "label": "Décor herbe — hauteur (m)", "def": 1.0, "min": 0.1, "max": 20.0, "step": 0.1},
+	{"key": "apparence.ressource.taille", "kind": Kind.FLOAT, "cat": "Apparence",
+	 "label": "Ressources — taille (x)", "def": 1.0, "min": 0.2, "max": 5.0, "step": 0.1,
+	 "desc":"Multiplicateur de la taille des arbres/rochers récoltables."},
+
 	# ------------------------------- ADMIN ----------------------------------
 	{"key": "admin.mot_de_passe", "kind": Kind.STRING, "cat": "Admin",
 	 "label": "Mot de passe admin", "def": "lastclan", "min": 0, "max": 0},
@@ -236,6 +261,7 @@ const CATEGORY_DESC: Dictionary = {
 	"Caméra": "Réglages de la caméra isométrique : bornes de zoom, vitesse de molette et inclinaison.",
 	"Monde": "Génération du monde : densité d'herbe et quantités de ressources par type.",
 	"Admin": "Paramètres d'administration. Changez ici le mot de passe d'accès.",
+	"Apparence": "Assets & visuel : modèles 3D des personnages (paysan/soldat), image de la HDV, image du décor herbe, et dimensions (largeur/hauteur) des images. Les champs 'chemin' acceptent un res:// d'un asset déjà présent dans le projet ; vide = asset par défaut du jeu.",
 }
 
 const PARAM_DESC: Dictionary = {
@@ -320,6 +346,13 @@ const PARAM_DESC: Dictionary = {
 	"monde.pierre_max": "Quantité de pierre initiale sur chaque rocher récoltable.",
 	"monde.or_max": "Quantité d'or initiale sur chaque filon récoltable.",
 	"monde.nourriture_max": "Quantité de nourriture initiale sur chaque buisson récoltable.",
+	"apparence.paysan.modele": "Chemin res:// du modèle 3D du paysan (vide = défaut).",
+	"apparence.soldat.modele": "Chemin res:// du modèle 3D du soldat (vide = défaut).",
+	"apparence.hdv.image": "Image res:// de la HDV (vide = images par niveau du jeu).",
+	"apparence.decor.herbe.image": "Image res:// du tapis d'herbe (vide = touffes 3D).",
+	"apparence.decor.herbe.largeur": "Largeur en mètres de l'image du décor herbe.",
+	"apparence.decor.herbe.hauteur": "Hauteur en mètres de l'image du décor herbe.",
+	"apparence.ressource.taille": "Multiplicateur de taille des arbres/rochers récoltables.",
 }
 
 # Valeurs courantes (défauts copiés puis surchargées par le JSON sauvegardé).

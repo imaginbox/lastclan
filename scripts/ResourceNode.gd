@@ -186,6 +186,10 @@ func _build_model_root() -> void:
 			model_scale = 1.0
 		ResourceType.FOOD:
 			model_scale = 0.7
+	# Multiplicateur de taille configurable (panel admin → Apparence).
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null and gc.get_value("apparence.ressource.taille") != null:
+		model_scale *= float(gc.get_value("apparence.ressource.taille"))
 	_model_root.scale = Vector3.ONE * model_scale
 
 ## Configure l'obstacle de navigation (évitement temps réel).

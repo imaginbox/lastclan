@@ -447,7 +447,16 @@ func _build_visual() -> void:
 	add_child(shape)
 
 ## Texture de l'hôtel de ville selon son niveau (1..6 -> HDV-1..6.png).
+## Si une image personnalisée est configurée (panel admin → Apparence → HDV),
+## elle remplace les images par niveau.
 func _town_hall_texture() -> Texture2D:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null and gc.get_value("apparence.hdv.image") != null:
+		var img := str(gc.get_value("apparence.hdv.image"))
+		if img != "":
+			var t := load(img) as Texture2D
+			if t != null:
+				return t
 	var lvl := clampi(level, 1, 6)
 	var path := "res://assets/models/Batiments/HDV/HDV-%d.png" % lvl
 	return load(path) as Texture2D

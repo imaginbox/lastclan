@@ -98,3 +98,20 @@ func test_new_default_values() -> void:
 		push_error("CHECK FAILED: camera.zoom_max défaut != 220")
 	if n.get_value("monde.bois_max") != 80:
 		push_error("CHECK FAILED: monde.bois_max défaut != 80")
+
+func test_apparence_category_and_defaults() -> void:
+	var n := _node()
+	var cats: Array = n.categories()
+	if not cats.has("Apparence"):
+		push_error("CHECK FAILED: catégorie Apparence absente")
+	n.reset()
+	if n.get_value("apparence.decor.herbe.largeur") != 1.0:
+		push_error("CHECK FAILED: apparence.decor.herbe.largeur défaut != 1.0")
+	if n.get_value("apparence.decor.herbe.hauteur") != 1.0:
+		push_error("CHECK FAILED: apparence.decor.herbe.hauteur défaut != 1.0")
+	if n.get_value("apparence.ressource.taille") != 1.0:
+		push_error("CHECK FAILED: apparence.ressource.taille défaut != 1.0")
+	if n.category_desc("Apparence") == "":
+		push_error("CHECK FAILED: description catégorie Apparence absente")
+	if n.param_desc("apparence.hdv.image") == "":
+		push_error("CHECK FAILED: description apparence.hdv.image absente")
