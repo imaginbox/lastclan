@@ -110,8 +110,8 @@ func test_resource_bar_has_no_background() -> void:
 		push_error("CHECK FAILED: la barre de ressources garde un fond")
 	main.queue_free()
 
-## Les sous-infos du haut doivent rester ancrées à GAUCHE (pas à droite).
-func test_extra_info_anchored_left() -> void:
+## Les sous-infos du haut doivent être CENTRÉES (alignées avec la barre CoC).
+func test_extra_info_centered() -> void:
 	var main := _make_main()
 	if not main.has_method("_apply_orientation_layout"):
 		main.queue_free()
@@ -122,6 +122,7 @@ func test_extra_info_anchored_left() -> void:
 	if extra == null:
 		main.queue_free()
 		return
-	if extra.anchor_left > 0.1:
-		push_error("CHECK FAILED: les sous-infos ne sont pas ancrées à gauche")
+	# Centré : anchor à 0.5 (ni à gauche 0, ni à droite 1).
+	if not is_equal_approx(extra.anchor_left, 0.5):
+		push_error("CHECK FAILED: les sous-infos ne sont pas centrées (anchor=" + str(extra.anchor_left) + ")")
 	main.queue_free()

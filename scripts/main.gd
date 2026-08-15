@@ -2005,15 +2005,15 @@ func _apply_orientation_layout() -> void:
 		if _hud_extra_panel != null and not _hud_extra_panel.visible:
 			_hud_extra_panel.visible = true
 			_hud_plus_btn.modulate = Color(1, 0.8, 0.4)
-	# Position du panneau des sous-infos : toujours ancré à GAUCHE, sous la barre
-	# de ressources (pour rester près des pillules). Ancres explicites (fiables).
+	# Position du panneau des sous-infos : CENTRÉ sous la barre de ressources
+	# (la barre est centrée, les sous-infos suivent le même alignement).
 	if _hud_extra_panel != null:
 		var ew: float = 460.0 * _ui_scale
-		_hud_extra_panel.anchor_left = 0.0
-		_hud_extra_panel.anchor_right = 0.0
-		_hud_extra_panel.offset_left = 10.0 * _ui_scale
-		_hud_extra_panel.offset_right = (10.0 + ew) * _ui_scale
-		_hud_extra_panel.offset_top = 56.0 * _ui_scale
+		_hud_extra_panel.anchor_left = 0.5
+		_hud_extra_panel.anchor_right = 0.5
+		_hud_extra_panel.offset_left = -ew * 0.5
+		_hud_extra_panel.offset_right = ew * 0.5
+		_hud_extra_panel.offset_top = 58.0 * _ui_scale
 
 
 func _on_resources_changed(gold: int, wood: int, stone: int, food: int) -> void:
@@ -2632,25 +2632,32 @@ func _toggle_build_menu() -> void:
 func _stylize_coc_button(b: Button) -> void:
 	for state in ["normal", "hover", "pressed", "focus"]:
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.2, 0.24, 0.32, 0.95)
-		sb.border_color = Color(0.7, 0.8, 1.0, 0.4)
-		sb.set_border_width_all(1)
-		sb.corner_radius_top_left = 8
-		sb.corner_radius_top_right = 8
-		sb.corner_radius_bottom_left = 8
-		sb.corner_radius_bottom_right = 8
-		sb.content_margin_left = 8
-		sb.content_margin_right = 8
+		sb.bg_color = Color(0.16, 0.12, 0.09, 0.94)      # bois sombre (comme les cartouches)
+		sb.border_color = Color(0.85, 0.66, 0.3, 0.95)   # liseré doré CoC
+		sb.set_border_width_all(2)
+		sb.corner_radius_top_left = 7
+		sb.corner_radius_top_right = 7
+		sb.corner_radius_bottom_left = 7
+		sb.corner_radius_bottom_right = 7
+		sb.content_margin_left = 10
+		sb.content_margin_right = 10
 		sb.content_margin_top = 4
 		sb.content_margin_bottom = 4
 		if state == "hover" or state == "pressed":
-			sb.bg_color = Color(0.3, 0.36, 0.48, 1.0)
-			sb.border_color = Color(0.85, 0.9, 1.0, 0.7)
+			sb.bg_color = Color(0.28, 0.2, 0.13, 1.0)
+			sb.border_color = Color(1.0, 0.8, 0.4, 1.0)
 		if state == "pressed":
-			sb.bg_color = Color(0.42, 0.5, 0.62, 1.0)
+			sb.bg_color = Color(0.36, 0.26, 0.16, 1.0)
+			sb.border_color = Color(1.0, 0.9, 0.5, 1.0)
+			sb.border_width_bottom = 1
+			sb.content_margin_top = 5
 		b.add_theme_stylebox_override(state, sb)
-	b.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	# Police CoC grasse, texte doré clair pour la lisibilité sur bois sombre.
+	b.add_theme_color_override("font_color", Color(1.0, 0.92, 0.72))
 	b.add_theme_color_override("font_hover_color", Color.WHITE)
+	b.add_theme_color_override("font_pressed_color", Color(1.0, 0.9, 0.6))
+	b.add_theme_color_override("font_outline_color", Color(0.15, 0.1, 0.05, 0.95))
+	b.add_theme_constant_override("outline_size", 8)
 
 ## Affiche/masque les boutons de construction selon le niveau de l'hôtel de ville.
 func _refresh_build_buttons() -> void:

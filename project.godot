@@ -39,6 +39,10 @@ window/stretch/aspect="expand"
 
 import/ignore="[\"build_web.bat\", \"mise_a_jour.bat\", \".github\", \".gitignore\", \"*.bat\"]"
 
+[gui]
+
+theme/custom_font="res://assets/fonts/LuckiestGuy-Regular.ttf"
+
 [input]
 
 ui_accept={

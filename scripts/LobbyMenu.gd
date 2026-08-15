@@ -112,58 +112,88 @@ func _url_param(key: String) -> String:
 
 func _build_ui() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	var vp_size := get_viewport_rect().size
+
+	# ---- Fond : dégradé sombre « royaume » + filet décoratif doré en haut.
 	var bg := ColorRect.new()
-	bg.color = Color(0.08, 0.09, 0.12)
+	bg.color = Color(0.09, 0.07, 0.05)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	var glow := ColorRect.new()
+	glow.color = Color(0.35, 0.24, 0.1)
+	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	glow.modulate = Color(1, 1, 1, 0.28)
+	add_child(glow)
 
+	# ---- Contenu centré, largeur responsive (mobile plein, PC ~640 max).
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
-
 	var panel := PanelContainer.new()
-	# Responsive : largeur pleine presque sur mobile, max 560 sur écran large.
-	var panel_w := minf(560.0, get_viewport_rect().size.x * 0.92)
+	var panel_w := clampf(vp_size.x * 0.94, 300.0, 640.0)
 	panel.custom_minimum_size = Vector2(panel_w, 0)
+	panel.size_flags_vertical = Control.SIZE_SHRINK_END
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color(0.13, 0.1, 0.075, 0.96)
+	ps.border_color = Color(0.85, 0.66, 0.3, 0.9)
+	ps.set_border_width_all(2)
+	ps.corner_radius_top_left = 14
+	ps.corner_radius_top_right = 14
+	ps.corner_radius_bottom_left = 14
+	ps.corner_radius_bottom_right = 14
+	ps.content_margin_left = 20
+	ps.content_margin_right = 20
+	ps.content_margin_top = 22
+	ps.content_margin_bottom = 18
+	panel.add_theme_stylebox_override("panel", ps)
 	center.add_child(panel)
-	var margin := MarginContainer.new()
-	for m in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
-		margin.add_theme_constant_override(m, 20)
-	panel.add_child(margin)
-	# Contenu défilable : évite que les boutons du bas soient coupés hors écran.
-	var scroll_h := maxf(300.0, get_viewport_rect().size.y * 0.8)
+
+	# Défilable (évite la coupure sur petit écran mobile).
+	var scroll_h := maxf(340.0, vp_size.y * 0.86)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(0, scroll_h)
-	margin.add_child(scroll)
+	panel.add_child(scroll)
 	var vb := VBoxContainer.new()
 	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_theme_constant_override("separation", 12)
+	vb.add_theme_constant_override("separation", 14)
 	scroll.add_child(vb)
 
-	# Titre
+	# ---- En-tête : titre stylé.
 	var title := Label.new()
-	title.text = "The Last Clan — Multijoueur"
+	title.text = "The Last Clan"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
+	title.add_theme_color_override("font_outline_color", Color(0.1, 0.06, 0.03, 0.95))
+	title.add_theme_constant_override("outline_size", 10)
 	vb.add_child(title)
+	var tagline := Label.new()
+	tagline.text = "Rejoignez votre clan et bâtissez votre royaume"
+	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tagline.add_theme_font_size_override("font_size", 14)
+	tagline.add_theme_color_override("font_color", Color(0.85, 0.78, 0.6))
+	tagline.add_theme_constant_override("outline_size", 4)
+	vb.add_child(tagline)
 
-	# Nom
+	# ---- Nom du joueur.
 	vb.add_child(_field_label("Votre nom"))
 	_name_input = LineEdit.new()
 	_name_input.placeholder_text = "Entrez votre nom…"
 	_name_input.text = Lobby.player_info.get("name", "Joueur")
-	_name_input.custom_minimum_size = Vector2(0, 34)
+	_name_input.custom_minimum_size = Vector2(0, 42)
+	_stylize_field(_name_input)
 	vb.add_child(_name_input)
 
-	# Langue de l'interface + du chat (international). Persiste via I18n.
+	# ---- Langue de l'interface + du chat (international). Persiste via I18n.
 	var lang_row := HBoxContainer.new()
 	lang_row.add_theme_constant_override("separation", 8)
 	vb.add_child(lang_row)
 	lang_row.add_child(_field_label(Langs.t("ui.chat") + " / Langue :"))
 	var _lang = OptionButton.new()
-	_lang.custom_minimum_size = Vector2(0, 34)
+	_lang.custom_minimum_size = Vector2(0, 38)
 	_lang.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_stylize_button(_lang)
 	for lang_code in Langs.available_languages():
 		_lang.add_item("%s %s" % [Langs.code_to_flag(lang_code), Langs.lang_name(lang_code)])
 		if lang_code == Langs.language:
@@ -171,127 +201,230 @@ func _build_ui() -> void:
 	_lang.item_selected.connect(_on_language_selected)
 	lang_row.add_child(_lang)
 
-	# Jouer hors ligne : fonctionne sans réseau ni relais — bien visible en haut.
-	_offline_button = Button.new()
-	_offline_button.text = "Jouer hors ligne (solo)"
-	_offline_button.custom_minimum_size = Vector2(0, 44)
-	_offline_button.disabled = false
-	_offline_button.pressed.connect(_on_offline_pressed)
-	vb.add_child(_offline_button)
+	# ---- Actions principales (gros boutons « jouer »).
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 10)
+	vb.add_child(action_row)
+	_offline_button = _big_button("Jouer hors ligne", _on_offline_pressed, true)
+	_offline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_row.add_child(_offline_button)
+	_launch_button = _big_button("Lancer le jeu", _on_launch_pressed, false)
+	_launch_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_row.add_child(_launch_button)
 
-	# Sélecteur de serveurs (modèle « royaumes ») — au premier plan.
-	vb.add_child(_field_label("Choisir un serveur (royaume)"))
+	# ---- Sélecteur de serveurs (modèle « royaumes »).
+	vb.add_child(_field_label("Choisir un royaume"))
 	_servers_box = VBoxContainer.new()
-	_servers_box.add_theme_constant_override("separation", 6)
+	_servers_box.add_theme_constant_override("separation", 8)
 	vb.add_child(_servers_box)
 	_build_server_list(_servers_box)
 
-	var sep := HSeparator.new()
-	vb.add_child(sep)
+	# ---- Créer / Rejoindre.
+	var grid := GridContainer.new()
+	grid.columns = (2 if (vp_size.x >= 560 and vp_size.x > vp_size.y) else 1)
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	vb.add_child(grid)
 
-	# Onglets Créer / Rejoindre
-	var tabs := TabContainer.new()
-	tabs.custom_minimum_size = Vector2(0, 210)
-	vb.add_child(tabs)
-
-	# --- Onglet Créer ---
-	var create_panel := VBoxContainer.new()
-	create_panel.add_theme_constant_override("separation", 10)
-	tabs.add_child(create_panel)
-	create_panel.name = "Créer une partie"
-	create_panel.add_child(_field_label("Nom de la partie"))
+	# --- Colonne Créer ---
+	var create_card := VBoxContainer.new()
+	create_card.add_theme_constant_override("separation", 8)
+	grid.add_child(create_card)
+	var create_title := Label.new()
+	create_title.text = "Créer une partie"
+	create_title.add_theme_font_size_override("font_size", 18)
+	create_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
+	create_card.add_child(create_title)
 	_create_code_input = LineEdit.new()
-	_create_code_input.placeholder_text = "Laissez vide pour générer un code"
-	_create_code_input.custom_minimum_size = Vector2(0, 34)
-	create_panel.add_child(_create_code_input)
-	var create_btn := Button.new()
-	create_btn.text = "Créer et lancer"
-	create_btn.custom_minimum_size = Vector2(0, 40)
-	create_btn.pressed.connect(_on_create_pressed)
-	create_panel.add_child(create_btn)
-	_invite_button = Button.new()
-	_invite_button.text = "📋 Copier l'invitation"
+	_create_code_input.placeholder_text = "Nom (vide = auto)"
+	_create_code_input.custom_minimum_size = Vector2(0, 40)
+	_stylize_field(_create_code_input)
+	create_card.add_child(_create_code_input)
+	var create_btn := _big_button("Créer et lancer", _on_create_pressed, true)
+	create_card.add_child(create_btn)
+	_invite_button = _big_button("Copier l'invitation", _on_copy_invite, false)
 	_invite_button.disabled = true
-	_invite_button.pressed.connect(_on_copy_invite)
-	create_panel.add_child(_invite_button)
+	_invite_button.custom_minimum_size = Vector2(0, 44)
+	create_card.add_child(_invite_button)
 	if OS.has_feature("editor"):
-		var test_btn := Button.new()
-		test_btn.text = "🧪 Lancer un 2e joueur (test local)"
-		test_btn.custom_minimum_size = Vector2(0, 36)
-		test_btn.pressed.connect(_on_spawn_test_player)
-		create_panel.add_child(test_btn)
+		var test_btn := _big_button("Lancer un 2e joueur (test)", _on_spawn_test_player, false)
+		test_btn.custom_minimum_size = Vector2(0, 40)
+		create_card.add_child(test_btn)
 
-	# --- Onglet Rejoindre ---
-	var join_panel := VBoxContainer.new()
-	join_panel.add_theme_constant_override("separation", 10)
-	tabs.add_child(join_panel)
-	join_panel.name = "Rejoindre une partie"
-	join_panel.add_child(_field_label("Code de la partie"))
+	# --- Colonne Rejoindre ---
+	var join_card := VBoxContainer.new()
+	join_card.add_theme_constant_override("separation", 8)
+	grid.add_child(join_card)
+	var join_title := Label.new()
+	join_title.text = "Rejoindre une partie"
+	join_title.add_theme_font_size_override("font_size", 18)
+	join_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
+	join_card.add_child(join_title)
 	var join_row := HBoxContainer.new()
 	join_row.add_theme_constant_override("separation", 8)
-	join_panel.add_child(join_row)
+	join_card.add_child(join_row)
 	_join_code_input = LineEdit.new()
-	_join_code_input.placeholder_text = "Entrez le code partagé"
-	_join_code_input.custom_minimum_size = Vector2(0, 34)
+	_join_code_input.placeholder_text = "Code de la partie"
+	_join_code_input.custom_minimum_size = Vector2(0, 40)
 	_join_code_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_join_code_input.text_submitted.connect(_on_join_submitted)
+	_stylize_field(_join_code_input)
 	join_row.add_child(_join_code_input)
-	var join_btn := Button.new()
-	join_btn.text = "Rejoindre"
-	join_btn.pressed.connect(_on_join_pressed)
+	var join_btn := _big_button("Rejoindre", _on_join_pressed, true)
+	join_btn.custom_minimum_size = Vector2(0, 40)
 	join_row.add_child(join_btn)
-	join_panel.add_child(_field_label("Parties récentes"))
+	join_card.add_child(_field_label("Parties récentes"))
 	_recent_box = VBoxContainer.new()
-	_recent_box.add_theme_constant_override("separation", 4)
-	join_panel.add_child(_recent_box)
+	_recent_box.add_theme_constant_override("separation", 6)
+	join_card.add_child(_recent_box)
 
-	# Statut
+	# ---- Statut de connexion.
 	_status_label = Label.new()
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.6))
+	_status_label.add_theme_font_size_override("font_size", 15)
+	_status_label.add_theme_constant_override("outline_size", 4)
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(_status_label)
 
-	# Liste des joueurs
+	# ---- Joueurs (compact).
 	vb.add_child(_field_label("Joueurs dans la partie"))
+	var players_scroll := ScrollContainer.new()
+	players_scroll.custom_minimum_size = Vector2(0, 70)
 	_players_box = VBoxContainer.new()
 	_players_box.add_theme_constant_override("separation", 4)
-	vb.add_child(_players_box)
+	_players_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	players_scroll.add_child(_players_box)
+	vb.add_child(players_scroll)
 
-	# Chat
+	# ---- Chat (compact, replié en liste).
 	vb.add_child(_field_label("Chat"))
 	_chat_log = RichTextLabel.new()
 	_chat_log.bbcode_enabled = true
-	_chat_log.custom_minimum_size = Vector2(0, 120)
+	_chat_log.custom_minimum_size = Vector2(0, 110)
 	_chat_log.scroll_following = true
+	_stylize_panel_container(_chat_log)
 	vb.add_child(_chat_log)
 	var chat_row := HBoxContainer.new()
 	chat_row.add_theme_constant_override("separation", 8)
 	vb.add_child(chat_row)
 	_chat_input = LineEdit.new()
 	_chat_input.placeholder_text = "Écrivez un message…"
-	_chat_input.custom_minimum_size = Vector2(0, 34)
+	_chat_input.custom_minimum_size = Vector2(0, 40)
 	_chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chat_input.text_submitted.connect(_on_chat_submitted)
+	_stylize_field(_chat_input)
 	chat_row.add_child(_chat_input)
-	var send_btn := Button.new()
-	send_btn.text = "Envoyer"
-	send_btn.pressed.connect(_on_chat_send)
+	var send_btn := _big_button("Envoyer", _on_chat_send, true)
+	send_btn.custom_minimum_size = Vector2(0, 40)
 	chat_row.add_child(send_btn)
-
-	# Lancer le jeu
-	_launch_button = Button.new()
-	_launch_button.text = "Lancer le jeu"
-	_launch_button.custom_minimum_size = Vector2(0, 44)
-	_launch_button.disabled = true
-	_launch_button.pressed.connect(_on_launch_pressed)
-	vb.add_child(_launch_button)
 
 func _field_label(text: String) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_color_override("font_color", Color(0.7, 0.75, 0.85))
+	l.add_theme_color_override("font_color", Color(0.88, 0.82, 0.68))
+	l.add_theme_constant_override("outline_size", 4)
+	l.add_theme_color_override("font_outline_color", Color(0.1, 0.06, 0.03, 0.9))
 	return l
+
+## Crée un bouton « CTA » style CoC (bois sombre + liseré doré + police grasse).
+func _big_button(text: String, handler: Callable, primary: bool) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(0, 48)
+	b.add_theme_font_size_override("font_size", 17)
+	b.pressed.connect(handler)
+	_stylize_button(b)
+	if primary:
+		# Accent doré plus marqué pour l'action principale.
+		var focus := StyleBoxFlat.new()
+		focus.bg_color = Color(0.32, 0.24, 0.1, 1.0)
+		focus.border_color = Color(1.0, 0.82, 0.4, 1.0)
+		focus.set_border_width_all(2)
+		focus.corner_radius_top_left = 8
+		focus.corner_radius_top_right = 8
+		focus.corner_radius_bottom_left = 8
+		focus.corner_radius_bottom_right = 8
+		focus.content_margin_left = 10
+		focus.content_margin_right = 10
+		focus.content_margin_top = 4
+		focus.content_margin_bottom = 4
+		b.add_theme_stylebox_override("normal", focus)
+		b.add_theme_stylebox_override("hover", focus.duplicate())
+		b.add_theme_color_override("font_color", Color(1.0, 0.88, 0.55))
+	return b
+
+## Applique le style CoC (bois + liseré doré) à un Button/OptionButton.
+func _stylize_button(b: Button) -> void:
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.16, 0.12, 0.09, 0.94)
+		sb.border_color = Color(0.85, 0.66, 0.3, 0.95)
+		sb.set_border_width_all(2)
+		sb.corner_radius_top_left = 8
+		sb.corner_radius_top_right = 8
+		sb.corner_radius_bottom_left = 8
+		sb.corner_radius_bottom_right = 8
+		sb.content_margin_left = 10
+		sb.content_margin_right = 10
+		sb.content_margin_top = 4
+		sb.content_margin_bottom = 4
+		if state == "hover" or state == "pressed":
+			sb.bg_color = Color(0.28, 0.2, 0.13, 1.0)
+			sb.border_color = Color(1.0, 0.8, 0.4, 1.0)
+		if state == "pressed":
+			sb.bg_color = Color(0.36, 0.26, 0.16, 1.0)
+		b.add_theme_stylebox_override(state, sb)
+	b.add_theme_color_override("font_color", Color(1.0, 0.92, 0.72))
+	b.add_theme_color_override("font_hover_color", Color.WHITE)
+	b.add_theme_color_override("font_pressed_color", Color(1.0, 0.9, 0.6))
+	b.add_theme_color_override("font_outline_color", Color(0.15, 0.1, 0.05, 0.95))
+	b.add_theme_constant_override("outline_size", 8)
+
+## Style CoC pour les champs de saisie (LineEdit).
+func _stylize_field(e: LineEdit) -> void:
+	e.add_theme_stylebox_override("normal", _field_box(false))
+	e.add_theme_stylebox_override("focus", _field_box(true))
+	e.add_theme_color_override("font_color", Color(0.98, 0.95, 0.85))
+	e.add_theme_color_override("font_placeholder_color", Color(0.6, 0.55, 0.45))
+	e.add_theme_color_override("caret_color", Color(1.0, 0.85, 0.5))
+	e.add_theme_constant_override("outline_size", 4)
+
+func _field_box(focused: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.06, 0.045, 0.9)
+	sb.border_color = Color(0.85, 0.66, 0.3, 0.7 if focused else 0.45)
+	sb.set_border_width_all(1 if not focused else 2)
+	sb.corner_radius_top_left = 8
+	sb.corner_radius_top_right = 8
+	sb.corner_radius_bottom_left = 8
+	sb.corner_radius_bottom_right = 8
+	sb.content_margin_left = 12
+	sb.content_margin_right = 12
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	return sb
+
+## Style CoC pour un panneau (chat, zone).
+func _stylize_panel_container(c: Control) -> void:
+	var box := _big_panel_box()
+	c.add_theme_stylebox_override("panel", box)
+	c.add_theme_stylebox_override("normal", box)
+
+func _big_panel_box() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.06, 0.045, 0.88)
+	sb.border_color = Color(0.85, 0.66, 0.3, 0.5)
+	sb.set_border_width_all(1)
+	sb.corner_radius_top_left = 8
+	sb.corner_radius_top_right = 8
+	sb.corner_radius_bottom_left = 8
+	sb.corner_radius_bottom_right = 8
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	return sb
 
 ## --- Actions ---
 
@@ -442,10 +575,10 @@ func _on_roster_changed() -> void:
 func _on_chat(author: String, text: String, src_lang: String = "en") -> void:
 	# Chat international : on affiche dans la langue du joueur via le moteur de
 	# traduction (Translator). Tant que le moteur est inactif, texte original.
-	var tr := Translator.translate(text, src_lang)
-	var shown: String = tr["text"]
+	var res := Translator.translate(text, src_lang)
+	var shown: String = res["text"]
 	var flag := Langs.code_to_flag(src_lang)
-	if tr["auto"]:
+	if res["auto"]:
 		_chat_log.append_text("[b]%s[/b] %s : %s  [i](%s)[/i]\n" % [flag, author, shown, Langs.lang_name(src_lang)])
 	else:
 		_chat_log.append_text("[b]%s[/b] %s : %s\n" % [flag, author, shown])
@@ -496,8 +629,10 @@ func _refresh_recent() -> void:
 		child.queue_free()
 	for code in _recent_rooms:
 		var b := Button.new()
-		b.text = "• %s" % code
+		b.text = code
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size = Vector2(0, 40)
+		_stylize_button(b)
 		b.pressed.connect(_on_recent_pressed.bind(code))
 		_recent_box.add_child(b)
 
@@ -539,12 +674,13 @@ func _build_server_list(container: VBoxContainer) -> void:
 		var b := Button.new()
 		b.custom_minimum_size = Vector2(0, 48)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		var badge := "⭐ " if is_official else "🌐 "
+		var badge := "★ " if is_official else "◆ "
 		var label := badge + sname
 		if not sub.is_empty():
 			label += "\n      " + sub
 		b.text = label
 		b.tooltip_text = (transport.to_upper() + " — " + address)
+		_stylize_button(b)
 		b.pressed.connect(_on_server_pressed.bind(transport, address, room))
 		container.add_child(b)
 
