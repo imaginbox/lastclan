@@ -20,7 +20,7 @@ const _gd := 1.6
 var _unlocked: bool = false
 var _pw_input: LineEdit
 var _pw_status: Label
-var _scroll_box: VBoxContainer
+var _status: Label
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -186,18 +186,30 @@ func _show_panel() -> void:
 	hint.add_theme_color_override("font_color", Color(0.82, 0.76, 0.6))
 	vb.add_child(hint)
 
-	# Zone scrollable pour les sections (le curseur avec les infos reste visible).
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size = Vector2(0, _px(120))
-	vb.add_child(scroll)
+	# Zone des onglets (un onglet par catégorie). Le contenu de chaque onglet
+	# est une colonne scrollable avec l'explication de la catégorie en tête.
+	var tabs := TabContainer.new()
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tabs.custom_minimum_size = Vector2(0, _px(120))
+	# Style des onglets (bois + doré).
+	var tab_bar: TabBar = tabs.get_tab_bar()
+	if tab_bar != null:
+		tab_bar.add_theme_font_size_override("font_size", _px(15))
+		tab_bar.add_theme_stylebox_override("tab_unselected", _tab_style(Color(0.14, 0.1, 0.07, 0.9)))
+		tab_bar.add_theme_stylebox_override("tab_selected", _tab_style(Color(0.24, 0.17, 0.1, 1.0)))
+		tab_bar.add_theme_color_override("font_unselected_color", Color(0.85, 0.78, 0.6))
+		tab_bar.add_theme_color_override("font_selected_color", Color(1.0, 0.9, 0.65))
+	vb.add_child(tabs)
 
-	_scroll_box = VBoxContainer.new()
-	_scroll_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_scroll_box.add_theme_constant_override("separation", _px(10))
-	scroll.add_child(_scroll_box)
+	_build_tabs(tabs)
 
-	_build_sections()
+	# Label de statut (retours "appliqué / réinitialisé").
+	_status = Label.new()
+	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_status.add_theme_font_size_override("font_size", _px(13))
+	_status.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
+	_status.text = ""
+	vb.add_child(_status)
 
 	# Barre d'actions (bas).
 	var actions := HBoxContainer.new()
@@ -217,44 +229,67 @@ func _show_panel() -> void:
 	back.custom_minimum_size = Vector2(0, _px(46))
 	actions.add_child(back)
 
-## Construit une section par catégorie du registre.
-func _build_sections() -> void:
+## Construit un onglet par catégorie du registre, avec son explication.
+func _build_tabs(tabs: TabContainer) -> void:
 	var gc := _gc()
+	var first := true
 	for cat in gc.categories():
 		var cat_name := String(cat)
-		var sec := Label.new()
-		sec.text = cat_name.to_upper()
-		sec.add_theme_font_size_override("font_size", _px(16))
-		sec.add_theme_color_override("font_color", Color(0.95, 0.72, 0.35))
-		sec.add_theme_constant_override("outline_size", 3)
-		_scroll_box.add_child(sec)
+		var tab_root := PanelContainer.new()
+		var ts := StyleBoxFlat.new()
+		ts.bg_color = Color(0.07, 0.05, 0.035, 0.8)
+		ts.set_corner_radius_all(6)
+		ts.content_margin_left = _px(10)
+		ts.content_margin_right = _px(10)
+		ts.content_margin_top = _px(10)
+		ts.content_margin_bottom = _px(10)
+		tab_root.add_theme_stylebox_override("panel", ts)
+		tabs.add_child(tab_root)
+		tabs.set_tab_title(tabs.get_tab_count() - 1, cat_name)
 
-		var cap := PanelContainer.new()
-		var cs := StyleBoxFlat.new()
-		cs.bg_color = Color(0.06, 0.045, 0.03, 0.7)
-		cs.border_color = Color(0.85, 0.66, 0.3, 0.3)
-		cs.set_border_width_all(1)
-		cs.set_corner_radius_all(8)
-		cs.content_margin_left = _px(10)
-		cs.content_margin_right = _px(10)
-		cs.content_margin_top = _px(8)
-		cs.content_margin_bottom = _px(8)
-		cap.add_theme_stylebox_override("panel", cs)
-		_scroll_box.add_child(cap)
+		var tvb := VBoxContainer.new()
+		tvb.add_theme_constant_override("separation", _px(8))
+		tab_root.add_child(tvb)
 
-		var cvb := VBoxContainer.new()
-		cvb.add_theme_constant_override("separation", _px(8))
-		cap.add_child(cvb)
+		# Explication de la catégorie.
+		var desc := Label.new()
+		desc.text = gc.category_desc(cat_name)
+		if desc.text.is_empty():
+			desc.text = "Réglages de la catégorie « %s »." % cat_name
+		desc.add_theme_font_size_override("font_size", _px(13))
+		desc.add_theme_color_override("font_color", Color(0.66, 0.78, 0.74))
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tvb.add_child(desc)
+
+		# Colonne scrollable des paramètres.
+		var scroll := ScrollContainer.new()
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		tvb.add_child(scroll)
+
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_theme_constant_override("separation", _px(8))
+		scroll.add_child(col)
 
 		for p in gc.params_in_cat(cat):
-			var row := _make_param_row(cat_name, p)
-			cvb.add_child(row)
+			col.add_child(_make_param_row(cat_name, p))
+
+		if first:
+			tabs.current_tab = 0
+			first = false
 
 func _make_param_row(_cat: String, p: Dictionary) -> Control:
 	var gc := _gc()
 	var key := String(p["key"])
+
+	# Enveloppe verticale : ligne (label + contrôle) + aide explicative.
+	var cell := VBoxContainer.new()
+	cell.add_theme_constant_override("separation", 2)
+
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _px(8))
+	cell.add_child(row)
 
 	var keylabel := Label.new()
 	keylabel.text = String(p["label"])
@@ -275,7 +310,8 @@ func _make_param_row(_cat: String, p: Dictionary) -> Control:
 			gc.set_value(k, _t)
 		)
 		row.add_child(le)
-		return row
+		_add_param_help(cell, gc, key)
+		return cell
 
 	# SpinBox pour INT/FLOAT/BOOL (BOOL traité comme INT 0/1 via checkbox):
 	if kind == GameConfig.Kind.BOOL:
@@ -287,7 +323,8 @@ func _make_param_row(_cat: String, p: Dictionary) -> Control:
 			gc.set_value(k, c.button_pressed)
 		)
 		row.add_child(cb)
-		return row
+		_add_param_help(cell, gc, key)
+		return cell
 
 	var sb := SpinBox.new()
 	sb.min_value = p.get("min", 0)
@@ -300,7 +337,20 @@ func _make_param_row(_cat: String, p: Dictionary) -> Control:
 		gc.set_value(k, v)
 	)
 	row.add_child(sb)
-	return row
+	_add_param_help(cell, gc, key)
+	return cell
+
+## Ajoute une petite ligne d'aide sous le paramètre (si GameConfig en déclare une).
+func _add_param_help(cell: VBoxContainer, gc: Node, key: String) -> void:
+	var text: String = gc.param_desc(key)
+	if text.is_empty():
+		return
+	var help := Label.new()
+	help.text = text
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	help.add_theme_font_size_override("font_size", _px(11))
+	help.add_theme_color_override("font_color", Color(0.62, 0.65, 0.55))
+	cell.add_child(help)
 
 func _on_apply() -> void:
 	# Dès qu'une valeur change, set_value() persiste déjà ; ce bouton force une
@@ -315,14 +365,8 @@ func _on_reset() -> void:
 	_notify("Réglages réinitialisés aux valeurs par défaut.")
 
 func _notify(t: String) -> void:
-	# Affiche un retour bref dans le panneau (pas de toast ici, hors jeu principal).
-	if _scroll_box != null:
-		var l := Label.new()
-		l.text = t
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		l.add_theme_font_size_override("font_size", _px(13))
-		l.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
-		_scroll_box.add_child(l)
+	if _status != null:
+		_status.text = t
 
 ## Aide visuelle : scalent px selon l'échelle d'UI du lobby (1.6 mobile).
 func _px(v: int) -> int:
@@ -372,3 +416,16 @@ func _stylize_field(e: LineEdit) -> void:
 	e.add_theme_color_override("caret_color", Color(1.0, 0.85, 0.5))
 	e.add_theme_color_override("font_placeholder_color", Color(0.6, 0.55, 0.45))
 	e.add_theme_font_size_override("font_size", _px(15))
+
+## Style des onglets (TabBar) : bois foncé avec liseré doré.
+func _tab_style(bg: Color) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = Color(0.85, 0.66, 0.3, 0.8)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(6)
+	sb.content_margin_left = _px(14)
+	sb.content_margin_right = _px(14)
+	sb.content_margin_top = _px(7)
+	sb.content_margin_bottom = _px(7)
+	return sb

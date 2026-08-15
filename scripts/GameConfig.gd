@@ -143,6 +143,75 @@ const REGISTRY: Array = [
 	 "label": "Mot de passe admin", "def": "lastclan", "min": 0, "max": 0},
 ]
 
+# ---------------------------------------------------------------------------
+# Descriptions d'aide (affichées dans le panneau admin).
+# CATEGORY_DESC : explication affichée en tête de chaque onglet.
+# PARAM_DESC    : aide courte affichée sous chaque paramètre (par clé).
+# ---------------------------------------------------------------------------
+const CATEGORY_DESC: Dictionary = {
+	"Économie": "Rythme auquel chaque bâtiment produit sa ressource. "
+		+ "Augmenter accélère la production ; mettre à 0 coupe la production.",
+	"Paysan": "Caractéristiques des paysans : déplacement, survie, dégâts, "
+		+ "vitesse de collecte et quantité transportée.",
+	"Soldat": "Caractéristiques des soldats entraînés à la caserne.",
+	"Bâtiments": "Coûts de construction et d'amélioration de chaque bâtiment, "
+		+ "logement des maisons et dégâts des tours.",
+	"Recrutement": "Coûts et durée pour recruter des paysans / entraîner des soldats.",
+	"Jeu": "Réglages généraux de la partie : ressources de départ et gravité.",
+	"Royaume": "Ressource sociale du royaume : gains par combat et déclin passif.",
+	"Admin": "Paramètres d'administration. Changez ici le mot de passe d'accès.",
+}
+
+const PARAM_DESC: Dictionary = {
+	"economie.gold.taux": "Or produit chaque seconde par l'hôtel de ville.",
+	"economie.nourriture.taux": "Nourriture/s produite par chaque ferme.",
+	"economie.pierre.taux": "Pierre/s produite par chaque carrière.",
+	"economie.or.taux": "Or/s produit par chaque mine d'or.",
+	"unite.paysan.vitesse": "Vitesse de déplacement du paysan (cases/s).",
+	"unite.paysan.pv": "Points de vie maximum du paysan.",
+	"unite.paysan.degats": "Dégâts infligés par attaque du paysan.",
+	"unite.paysan.portee": "Distance d'attaque du paysan (cases).",
+	"unite.paysan.recolte": "Durée pour collecter une ressource (s).",
+	"unite.paysan.charge": "Quantité max transportée avant de revenir déposer.",
+	"unite.soldat.vitesse": "Vitesse de déplacement du soldat (cases/s).",
+	"unite.soldat.pv": "Points de vie maximum du soldat.",
+	"unite.soldat.degats": "Dégâts infligés par attaque du soldat.",
+	"unite.soldat.portee": "Distance d'attaque du soldat (cases).",
+	"unite.soldat.cadence": "Délai entre deux attaques du soldat (s).",
+	"batiment.hdv.cout_or": "Coût en or pour construire l'hôtel de ville.",
+	"batiment.hdv.ameli_or": "Coût en or pour améliorer l'hôtel de ville.",
+	"batiment.hdv.ameli_bois": "Coût en bois pour améliorer l'hôtel de ville.",
+	"batiment.caserne.cout_or": "Coût en or de la caserne.",
+	"batiment.caserne.cout_bois": "Coût en bois de la caserne.",
+	"batiment.caserne.cout_pierre": "Coût en pierre de la caserne.",
+	"batiment.maison.cout_or": "Coût en or d'une maison.",
+	"batiment.maison.cout_bois": "Coût en bois d'une maison.",
+	"batiment.maison.pop": "Logement offert par niveau de maison.",
+	"batiment.tour.cout_or": "Coût en or d'une tour.",
+	"batiment.tour.cout_bois": "Coût en bois d'une tour.",
+	"batiment.tour.cout_pierre": "Coût en pierre d'une tour.",
+	"batiment.tour.degats": "Dégâts infligés par la tour.",
+	"batiment.ferme.cout_or": "Coût en or d'une ferme.",
+	"batiment.ferme.cout_bois": "Coût en bois d'une ferme.",
+	"batiment.carriere.cout_or": "Coût en or d'une carrière.",
+	"batiment.carriere.cout_bois": "Coût en bois d'une carrière.",
+	"batiment.carriere.cout_pierre": "Coût en pierre d'une carrière.",
+	"batiment.mine.cout_bois": "Coût en bois d'une mine d'or.",
+	"batiment.mine.cout_pierre": "Coût en pierre d'une mine d'or.",
+	"recrutement.paysan.or": "Coût en or pour recruter un paysan.",
+	"recrutement.paysan.nourriture": "Coût en nourriture pour recruter un paysan.",
+	"recrutement.soldat.or": "Coût en or pour entraîner un soldat.",
+	"recrutement.soldat.bois": "Coût en bois pour entraîner un soldat.",
+	"recrutement.soldat.temps": "Durée d'entraînement d'un soldat (s).",
+	"jeu.ressources.initial_or": "Or au début de chaque partie.",
+	"jeu.ressources.initial_bois": "Bois au début de chaque partie.",
+	"jeu.ressources.initial_pierre": "Pierre au début de chaque partie.",
+	"jeu.gravite": "Gravité du monde (négatif = vers le bas).",
+	"royaume.montant_combat": "Jauge de royaume gagnée par combat gagné.",
+	"royaume.drain_parseconde": "Perte automatique de jauge du royaume par seconde.",
+	"admin.mot_de_passe": "Mot de passe demandé pour ouvrir ce panneau.",
+}
+
 # Valeurs courantes (défauts copiés puis surchargées par le JSON sauvegardé).
 var _values: Dictionary = {}
 var _loaded: bool = false
@@ -215,6 +284,14 @@ func params_in_cat(cat: String) -> Array:
 		if p["cat"] == cat:
 			out.append(p)
 	return out
+
+## Description d'aide d'une catégorie (ou "" si absente).
+func category_desc(cat: String) -> String:
+	return str(CATEGORY_DESC.get(cat, ""))
+
+## Description d'aide d'un paramètre (par clé), ou "" si absente.
+func param_desc(k: String) -> String:
+	return str(PARAM_DESC.get(k, ""))
 
 func to_dict() -> Dictionary:
 	return _values.duplicate()

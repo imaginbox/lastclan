@@ -62,3 +62,17 @@ func test_persistence_roundtrip() -> void:
 	n2.reset()
 	n2.save()
 
+
+func test_category_descriptions_present() -> void:
+	var n := _node()
+	if n.category_desc("Économie") == "":
+		push_error("CHECK FAILED: la description de catégorie Économie est vide")
+	if n.category_desc("CatégorieInexistante") != "":
+		push_error("CHECK FAILED: devrait retourner vide pour une catégorie inconnue")
+
+func test_param_descriptions_present() -> void:
+	var n := _node()
+	if n.param_desc("unite.paysan.vitesse") == "":
+		push_error("CHECK FAILED: description du param vitesse paysan absente")
+	if n.param_desc("clé.inconnue") != "":
+		push_error("CHECK FAILED: devrait retourner vide pour une clé inconnue")
