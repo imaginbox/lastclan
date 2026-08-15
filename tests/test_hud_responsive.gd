@@ -53,3 +53,43 @@ func test_plus_button_toggles_extra_panel() -> void:
 	if not extra.visible:
 		push_error("CHECK FAILED: + ne rouvre pas le panneau")
 	main.queue_free()
+
+## Sélectionner une unité doit faire apparaître le panneau des états (droite).
+func test_unit_selection_shows_state_panel() -> void:
+	var main := _make_main()
+	if get_tree() == null:
+		main.queue_free()
+		return
+	# Instance directe d'une unité (fiable en headless, comme test_combat).
+	var u: Node = load("res://scenes/Villager.tscn").instantiate()
+	main.add_child(u)
+	await get_tree().process_frame
+	main.call("_select_single_from_node", u)
+	await get_tree().process_frame
+	var panel: PanelContainer = main.get("_unit_panel")
+	if panel == null:
+		push_error("CHECK FAILED: _unit_panel nul")
+		main.queue_free()
+		return
+	if not panel.visible:
+		push_error("CHECK FAILED: panneau d'états invisible après sélection d'unité")
+	var role: Label = main.get("_unit_role_lbl")
+	if role == null or role.text.is_empty():
+		push_error("CHECK FAILED: rôle unité manquant")
+	main.queue_free()
+
+func test_unit_deselect_hides_state_panel() -> void:
+	var main := _make_main()
+	if get_tree() == null:
+		main.queue_free()
+		return
+	var u: Node = load("res://scenes/Villager.tscn").instantiate()
+	main.add_child(u)
+	await get_tree().process_frame
+	main.call("_select_single_from_node", u)
+	await get_tree().process_frame
+	main.call("_deselect_all")
+	var panel: PanelContainer = main.get("_unit_panel")
+	if panel != null and panel.visible:
+		push_error("CHECK FAILED: panneau d'états visible après désélection")
+	main.queue_free()

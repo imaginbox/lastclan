@@ -74,6 +74,11 @@ var _inspect_label: Label = null
 var _order_btns := {}   # OrderMode -> Button
 var _order_hint: Label = null
 var _order_armed := false
+## Panneau des états du personnage sélectionné (côté droit).
+var _unit_panel: PanelContainer = null
+var _unit_role_lbl: Label = null
+var _unit_hp_lbl: Label = null
+var _unit_state_lbl: Label = null
 # --- Échelle UI (plus grande sur mobile) ---
 var _ui_scale: float = 1.0
 ## True si l'écran est en portrait (plus haut que large) — guide la répartition
@@ -1841,11 +1846,11 @@ func _setup_hud() -> void:
 	hb.alignment = BoxContainer.ALIGNMENT_BEGIN
 	hb.add_theme_constant_override("separation", int(6 * _ui_scale))
 	top.add_child(hb)
-	# Pillules : icône + valeur, style CoC (ressources principales toujours visibles).
-	_hud_gold_label = _make_resource_pill(hb, "🪙", Color(1.0, 0.85, 0.3))
-	_hud_wood_label = _make_resource_pill(hb, "🪵", Color(0.75, 0.55, 0.35))
-	_hud_stone_label = _make_resource_pill(hb, "🪨", Color(0.7, 0.72, 0.75))
-	_hud_food_label = _make_resource_pill(hb, "🍖", Color(0.9, 0.6, 0.4))
+	# Pillules : icône image + valeur, sans fond (CoC, ressources principales).
+	_hud_gold_label = _make_resource_pill(hb, "gold", Color(1.0, 0.85, 0.3))
+	_hud_wood_label = _make_resource_pill(hb, "wood", Color(0.75, 0.55, 0.35))
+	_hud_stone_label = _make_resource_pill(hb, "stone", Color(0.7, 0.72, 0.75))
+	_hud_food_label = _make_resource_pill(hb, "food", Color(0.9, 0.6, 0.4))
 	# Bouton « + » : déplie les sous-infos (population, royaume, clan) — CoC.
 	_hud_plus_btn = Button.new()
 	_hud_plus_btn.name = "HudPlusButton"
@@ -1882,18 +1887,30 @@ func _setup_hud() -> void:
 	_hud_extra_box.add_theme_constant_override("separation", int(10 * _ui_scale))
 	_hud_extra_panel.add_child(_hud_extra_box)
 	# Population.
-	_hud_pop_label = _make_resource_pill(_hud_extra_box, "👥", Color(0.6, 0.9, 1.0))
-	# Jauge du royaume (icône change selon la zone).
-	_hud_realm_label = _make_resource_pill(_hud_extra_box, "🌱", Color(0.95, 0.95, 0.75))
-	# Indicateur clan, compact.
+	_hud_pop_label = _make_resource_pill(_hud_extra_box, "pop", Color(0.6, 0.9, 1.0))
+	# Jauge du royaume (icône image).
+	_hud_realm_label = _make_resource_pill(_hud_extra_box, "realm", Color(0.95, 0.95, 0.75))
+	# Indicateur clan : icône bouclier + texte compact (pas d'émoji).
+	var clan_row := HBoxContainer.new()
+	clan_row.add_theme_constant_override("separation", int(4 * _ui_scale))
+	clan_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	clan_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var clan_tex := TextureRect.new()
+	clan_tex.texture = _icon("shield")
+	var csize: float = 20.0 * _ui_scale
+	clan_tex.custom_minimum_size = Vector2(csize, csize)
+	clan_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	clan_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	clan_tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clan_row.add_child(clan_tex)
 	_hud_clan_label = Label.new()
 	_hud_clan_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
 	_hud_clan_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 	_hud_clan_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	_hud_clan_label.add_theme_constant_override("outline_size", 6)
 	_hud_clan_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_hud_clan_label.custom_minimum_size = Vector2(0, 0)
-	_hud_extra_box.add_child(_hud_clan_label)
+	clan_row.add_child(_hud_clan_label)
+	_hud_extra_box.add_child(clan_row)
 	# Liaisons données -> UI.
 	if get_node_or_null("/root/Realm") != null:
 		Realm.realm_changed.connect(_on_realm_changed)
@@ -1910,31 +1927,39 @@ func _setup_hud() -> void:
 	# Bouton pour ouvrir le panneau Clan (mobile + PC).
 	_setup_clan_button()
 
-## Crée une « pillule » CoC (fond arrondi + icône + valeur) dans un HBox.
-func _make_resource_pill(parent: HBoxContainer, icon: String, _icon_color: Color) -> Label:
-	var pill := PanelContainer.new()
-	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0, 0, 0, 0.45)
-	sb.corner_radius_top_left = 8
-	sb.corner_radius_top_right = 8
-	sb.corner_radius_bottom_left = 8
-	sb.corner_radius_bottom_right = 8
-	sb.content_margin_left = 7
-	sb.content_margin_right = 7
-	sb.content_margin_top = 3
-	sb.content_margin_bottom = 3
-	pill.add_theme_stylebox_override("panel", sb)
+## Crée une « pillule » CoC : icône image + valeur, SANS fond semi-transparent.
+## L'icône est un vrai sprite (visible sur navigateur, contrairement aux émojis).
+func _make_resource_pill(parent: HBoxContainer, icon_key: String, _color: Color) -> Label:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(4 * _ui_scale))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var tex := TextureRect.new()
+	tex.texture = _icon(icon_key)
+	var size: float = 20.0 * _ui_scale
+	tex.custom_minimum_size = Vector2(size, size)
+	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(tex)
 	var lab := Label.new()
-	var fs: int = int(15 * _ui_scale)
-	lab.add_theme_font_size_override("font_size", fs)
+	lab.add_theme_font_size_override("font_size", int(15 * _ui_scale))
 	lab.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
 	lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	lab.add_theme_constant_override("outline_size", 5)
-	lab.text = "%s 0" % icon
-	pill.add_child(lab)
-	parent.add_child(pill)
+	lab.text = "0"
+	row.add_child(lab)
+	parent.add_child(row)
 	return lab
+
+## Chargement en cache des icônes de ressources (sprites, pas d'émojis).
+var _icon_cache := {}
+func _icon(key: String) -> Texture2D:
+	if _icon_cache.has(key):
+		return _icon_cache[key]
+	var tex := load("res://assets/generated/icon_%s.png" % key)
+	_icon_cache[key] = tex
+	return tex
 
 ## Détecte l'orientation courante (portrait si plus haut que large). Utilisée
 ## par les helpers de layout pour répartir l'UI (barre ressources, dock, panels).
@@ -2009,31 +2034,27 @@ func _on_population_changed(used: int, cap: int) -> void:
 func _on_realm_changed(value: float, zone: String) -> void:
 	if _hud_realm_label == null:
 		return
-	var icon := "🌱"
 	var color := Color(0.7, 0.9, 0.5)
 	match zone:
 		"prosperity":
-			icon = "🌟"
 			color = Color(0.5, 1.0, 0.5)
 			_hud_realm_label.add_theme_color_override("font_color", color)
 		"decline":
-			icon = "⚠️"
 			color = Color(1.0, 0.5, 0.4)
 			_hud_realm_label.add_theme_color_override("font_color", color)
 		_:
-			icon = "🌱"
 			color = Color(0.95, 0.95, 0.75)
 			_hud_realm_label.add_theme_color_override("font_color", color)
-	_hud_realm_label.text = "%s Sort du Royaume : %d" % [icon, int(value)]
+	_hud_realm_label.text = "Royaume : %d" % int(value)
 
 ## Met à jour mon affiliation de clan dans le HUD.
 func _on_my_clan_changed() -> void:
 	if _hud_clan_label == null:
 		return
 	if Clans.my_clan == "":
-		_hud_clan_label.text = "🛡️ Aucun clan — touchez « Clan » pour créer/rejoindre"
+		_hud_clan_label.text = "Aucun clan — touchez « Clan »"
 	else:
-		_hud_clan_label.text = "🛡️ Clan : %s (%s)" % [Clans.my_clan_name(), Clans.my_clan]
+		_hud_clan_label.text = "%s (%s)" % [Clans.my_clan_name(), Clans.my_clan]
 
 ## Compte les unités vivantes pour l'affichage Travailleurs / Soldats.
 func _refresh_unit_counts() -> void:
@@ -2052,40 +2073,42 @@ func _refresh_unit_counts() -> void:
 func _notify(text: String) -> void:
 	print(text)
 
-## Inspecteur : affiche les infos d'une seule unité sélectionnée (mobile + PC).
-## Donne au joueur un retour clair sur ce que fait son personnage.
+## Inspecteur : affiche les états du personnage sélectionné dans le panneau
+## de droite (mobile + PC). Donne au joueur un retour clair sur ce qu'il fait.
 func _refresh_inspector() -> void:
-	if _inspect_label == null:
+	if _unit_panel == null:
 		return
 	if _selected_units.size() != 1 or not is_instance_valid(_selected_units[0]):
-		_inspect_label.visible = false
+		_unit_panel.visible = false
 		return
 	var u: Node = _selected_units[0]
-	var parts: Array = []
+	var role := ""
+	var hp_str := ""
+	var state_str := ""
 	if u is Villager:
-		parts.append("🧑‍🌾 Paysan")
-		parts.append("❤️ %d/%d" % [u.hp, u.max_hp])
-		if u._state == Villager.State.GOING_TO_RESOURCE or u._state == Villager.State.GATHERING:
-			parts.append("⛏️ Récolte")
-		elif u._state == Villager.State.RETURNING:
-			parts.append("📦 Livre (%d)" % u._carried_amount)
-		elif u._state == Villager.State.ATTACKING:
-			parts.append("⚔️ Combat")
-		elif u._state == Villager.State.MOVING:
-			parts.append("🏃 Déplace")
-		else:
-			parts.append("😴 Idle")
+		role = "Paysan"
+		hp_str = "Vie : %d / %d" % [u.hp, u.max_hp]
+		match int(u._state):
+			Villager.State.GOING_TO_RESOURCE: state_str = "En route vers la ressource"
+			Villager.State.GATHERING: state_str = "Récolte en cours…"
+			Villager.State.RETURNING: state_str = "Livre la ressource (%d)" % u._carried_amount
+			Villager.State.ATTACKING: state_str = "Combat"
+			Villager.State.MOVING: state_str = "Se déplace"
+			_: state_str = "En attente (idle)"
 	elif u is Soldier:
-		parts.append("⚔️ Soldat")
-		parts.append("❤️ %d/%d" % [u.hp, u.max_hp])
-		if u._state == Soldier.State.ATTACK:
-			parts.append("⚔️ Combat")
-		elif u._state == Soldier.State.MOVE:
-			parts.append("🏃 Déplace")
-		else:
-			parts.append("😴 Idle")
-	_inspect_label.text = "  ".join(parts)
-	_inspect_label.visible = true
+		role = "Soldat"
+		hp_str = "Vie : %d / %d" % [u.hp, u.max_hp]
+		match int(u._state):
+			Soldier.State.ATTACK: state_str = "Combat"
+			Soldier.State.MOVE: state_str = "Se déplace"
+			_: state_str = "En attente (idle)"
+	else:
+		_unit_panel.visible = false
+		return
+	_unit_role_lbl.text = role
+	_unit_hp_lbl.text = hp_str
+	_unit_state_lbl.text = state_str
+	_unit_panel.visible = true
 
 # ============================================================ PANEL CLAN
 
@@ -2409,6 +2432,48 @@ func _setup_order_button() -> void:
 	_inspect_label.visible = false
 	layer.add_child(_inspect_label)
 
+	# ===== Panneau des états du personnage sélectionné (côté droit, CoC).
+	_unit_panel = PanelContainer.new()
+	_unit_panel.name = "UnitStatePanel"
+	_unit_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_unit_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_unit_panel.offset_left = -250.0 * _ui_scale
+	_unit_panel.offset_top = 190.0 * _ui_scale
+	_unit_panel.offset_right = -12.0 * _ui_scale
+	_unit_panel.offset_bottom = 340.0 * _ui_scale
+	_unit_panel.visible = false
+	var ub := StyleBoxFlat.new()
+	ub.bg_color = Color(0.1, 0.12, 0.16, 0.85)
+	ub.corner_radius_top_left = 12
+	ub.corner_radius_top_right = 12
+	ub.corner_radius_bottom_left = 12
+	ub.corner_radius_bottom_right = 12
+	ub.border_color = Color(0.6, 0.7, 0.9, 0.4)
+	ub.set_border_width_all(2)
+	ub.content_margin_left = 14
+	ub.content_margin_right = 14
+	ub.content_margin_top = 12
+	ub.content_margin_bottom = 12
+	_unit_panel.add_theme_stylebox_override("panel", ub)
+	var uv := VBoxContainer.new()
+	uv.add_theme_constant_override("separation", int(8 * _ui_scale))
+	_unit_panel.add_child(uv)
+	_unit_role_lbl = Label.new()
+	_unit_role_lbl.add_theme_font_size_override("font_size", int(18 * _ui_scale))
+	_unit_role_lbl.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
+	_unit_role_lbl.add_theme_constant_override("outline_size", 6)
+	_unit_role_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	uv.add_child(_unit_role_lbl)
+	_unit_hp_lbl = Label.new()
+	_unit_hp_lbl.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	_unit_hp_lbl.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
+	uv.add_child(_unit_hp_lbl)
+	_unit_state_lbl = Label.new()
+	_unit_state_lbl.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	_unit_state_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	uv.add_child(_unit_state_lbl)
+	layer.add_child(_unit_panel)
+
 ## Annule la sélection en cours (les unités retournent à leur tâche auto).
 func _cancel_selection() -> void:
 	_deselect_all()
@@ -2468,6 +2533,8 @@ func _refresh_order_button() -> void:
 		if _order_hint != null:
 			_order_hint.visible = false
 		_highlight_order_buttons()
+	if _unit_panel != null and not has_units:
+		_unit_panel.visible = false
 
 # ============================================================ UI : CONSTRUCTION
 
@@ -2475,44 +2542,31 @@ func _setup_build_ui() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 41
 	add_child(layer)
-	# ===== Bouton central « Construire » : se déplie en grille des bâtiments (CoC).
+	# ===== Bouton « Construire » en bas à gauche : se déplie en grille (CoC).
 	_build_main_btn = Button.new()
 	_build_main_btn.name = "BuildButton"
-	_build_main_btn.text = "🔨"
-	_build_main_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_build_main_btn.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_build_main_btn.text = "🔨 Construire"
+	_build_main_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_build_main_btn.grow_horizontal = Control.GROW_DIRECTION_END
 	_build_main_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_build_main_btn.offset_left = -70.0 * _ui_scale
-	_build_main_btn.offset_right = 70.0 * _ui_scale
-	_build_main_btn.offset_top = -110.0 * _ui_scale
+	_build_main_btn.offset_left = 12.0 * _ui_scale
+	_build_main_btn.offset_top = -90.0 * _ui_scale
+	_build_main_btn.offset_right = (12.0 + 150.0) * _ui_scale
 	_build_main_btn.offset_bottom = -30.0 * _ui_scale
-	_build_main_btn.add_theme_font_size_override("font_size", int(30 * _ui_scale))
+	_build_main_btn.add_theme_font_size_override("font_size", int(18 * _ui_scale))
 	_stylize_coc_button(_build_main_btn)
 	_build_main_btn.pressed.connect(_toggle_build_menu)
 	layer.add_child(_build_main_btn)
-	# Libellé sous l'icône.
-	var lbl := Label.new()
-	lbl.text = "Construire"
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	lbl.offset_top = 48.0 * _ui_scale
-	lbl.offset_bottom = 70.0 * _ui_scale
-	lbl.add_theme_font_size_override("font_size", int(13 * _ui_scale))
-	lbl.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	lbl.add_theme_constant_override("outline_size", 5)
-	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_build_main_btn.add_child(lbl)
-	# ===== Menu dépliable : grille de tous les bâtiments.
+	# ===== Menu dépliable : grille de tous les bâtiments (au-dessus du bouton).
 	_build_menu = PanelContainer.new()
 	_build_menu.name = "BuildMenu"
-	_build_menu.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_build_menu.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_build_menu.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_build_menu.grow_horizontal = Control.GROW_DIRECTION_END
 	_build_menu.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_build_menu.offset_left = 12.0 * _ui_scale
 	_build_menu.offset_top = -330.0 * _ui_scale
-	_build_menu.offset_bottom = -120.0 * _ui_scale
-	_build_menu.offset_left = -200.0 * _ui_scale
-	_build_menu.offset_right = 200.0 * _ui_scale
+	_build_menu.offset_bottom = -100.0 * _ui_scale
+	_build_menu.offset_right = (12.0 + 400.0) * _ui_scale
 	_build_menu.visible = false
 	var fb := StyleBoxFlat.new()
 	fb.bg_color = Color(0.1, 0.12, 0.16, 0.95)
