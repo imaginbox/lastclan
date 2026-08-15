@@ -22,7 +22,7 @@ const TYPES := {
 	Type.TOWN_HALL: {
 		"name": "Hôtel de ville",
 		"cost_gold": 0, "cost_wood": 0,
-		"footprint": 2, "max_level": 3,
+		"footprint": 2, "max_level": 6,
 		"upg_gold": 60, "upg_wood": 100, "upg_stone": 40,
 		"min_th_level": 0,
 		"color": Color(0.6, 0.4, 0.2),
@@ -103,6 +103,9 @@ var relay: Node = null
 
 var _mesh: MeshInstance3D = null
 var _base_material: StandardMaterial3D = null
+## Sprite 2D debout (billboard) utilisé pour l'hôtel de ville (type TOWN_HALL) :
+## vu que le jeu n'a qu'un seul angle de caméra, une image suffit.
+var _sprite: Sprite3D = null
 # Accumulateur fractionnaire de production. `int(prod * delta)` à 60fps donne
 # toujours 0 (ex. 2.5/s × 0.016s = 0.04 → int = 0), donc sans accumulation les
 # bâtiments ne produisent JAMAIS rien. On cumule les fractions et on ne convertit
@@ -307,32 +310,67 @@ func _build_visual() -> void:
 	# La ferme et la carrière sont plus plates (champs / fondations).
 	if type == Type.FERME or type == Type.CARRIERE:
 		h = 0.3
-	
+
 	var size := Vector3(f, h, f)
-	_mesh = MeshInstance3D.new()
-	_mesh.name = "Mesh"
-	var box := BoxMesh.new()
-	box.size = size
-	_mesh.mesh = box
-	_base_material = StandardMaterial3D.new()
-	
-	# Couleur spécifique pour la ferme (jaune blé) si pas définie.
-	var color: Color = _cfg().get("color", Color.WHITE)
-	if type == Type.FERME:
-		color = Color(0.9, 0.8, 0.2) # Jaune blé
-		
-	_base_material.albedo_color = color
-	_mesh.material_override = _base_material
-	add_child(_mesh)
-	_mesh.position.y = h / 2.0
-	
+
+	if type == Type.TOWN_HALL:
+		# Hôtel de ville : image 2D debout (Sprite3D billboard) au lieu d'un cube.
+		# Le jeu n'a qu'un seul angle de caméra, une image suffit donc.
+		_sprite = Sprite3D.new()
+		_sprite.name = "Sprite"
+		_sprite.texture = _town_hall_texture()
+		_sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_sprite.centered = true
+		# Échelle : la largeur correspond à l'empreinte (footprint), la hauteur
+		# s'adapte au ratio de l'image pour garder les proportions.
+		var tsize := _sprite.texture.get_size()
+		if tsize.x > 0:
+			var aspect := float(tsize.y) / float(tsize.x)
+			_sprite.scale = Vector3(f, f * aspect, 1.0)
+		# Le pied de l'image repose sur le sol : on remonte la moitié de la hauteur.
+		_sprite.position.y = (_sprite.scale.y * 0.5)
+		add_child(_sprite)
+	else:
+		_mesh = MeshInstance3D.new()
+		_mesh.name = "Mesh"
+		var box := BoxMesh.new()
+		box.size = size
+		_mesh.mesh = box
+		_base_material = StandardMaterial3D.new()
+
+		# Couleur spécifique pour la ferme (jaune blé) si pas définie.
+		var color: Color = _cfg().get("color", Color.WHITE)
+		if type == Type.FERME:
+			color = Color(0.9, 0.8, 0.2) # Jaune blé
+
+		_base_material.albedo_color = color
+		_mesh.material_override = _base_material
+		add_child(_mesh)
+		_mesh.position.y = h / 2.0
+
+	# Collision physique (idente pour les deux rendus) : un parallélépipède taille
+	# empreinte × hauteur, pour que le bâtiment reste un obstacle RTS solide.
 	var shape := CollisionShape3D.new()
 	shape.name = "CollisionShape3D"
-	shape.shape = _mesh.mesh.create_convex_shape()
+	var cshape := BoxShape3D.new()
+	cshape.size = size
+	shape.shape = cshape
 	shape.position.y = h / 2.0
 	add_child(shape)
 
+## Texture de l'hôtel de ville selon son niveau (1..6 -> HDV-1..6.png).
+func _town_hall_texture() -> Texture2D:
+	var lvl := clampi(level, 1, 6)
+	var path := "res://assets/models/Batiments/HDV/HDV-%d.png" % lvl
+	return load(path) as Texture2D
+
 func _update_visual() -> void:
+	# L'HDV change de texture à chaque niveau + s'assombrit quand il est endommagé.
+	if _sprite != null:
+		_sprite.texture = _town_hall_texture()
+		var ratio_spr := clampf(float(hp) / float(max_hp), 0.0, 1.0)
+		_sprite.modulate = Color.WHITE.lerp(Color(0.25, 0.2, 0.18), 0.35 * (1.0 - ratio_spr))
+		return
 	if _base_material == null:
 		return
 	var ratio := clampf(float(hp) / float(max_hp), 0.0, 1.0)
@@ -340,12 +378,19 @@ func _update_visual() -> void:
 
 ## Applique la teinte du propriétaire à une copie distante (distingue les camps).
 func set_owner_tint(color: Color) -> void:
-	if _base_material != null:
+	if _sprite != null:
+		_sprite.modulate = color
+	elif _base_material != null:
 		_base_material.albedo_color = color
 
 ## Actualise le visuel d'une copie distante après un changement de type/niveau
 ## (utilisé lors de la synchro des bâtiments entre joueurs).
 func update_visual_for_sync() -> void:
+	if _sprite != null:
+		if remote:
+			_sprite.texture = _town_hall_texture()
+			_sprite.modulate = _cfg().get("color", Color.WHITE)
+		return
 	if _base_material != null and not remote:
 		return
 	if remote and _base_material != null:
@@ -353,6 +398,12 @@ func update_visual_for_sync() -> void:
 
 ## Sélection visuelle (contour/teinte).
 func set_selected(on: bool) -> void:
+	if _sprite != null:
+		if on:
+			_sprite.modulate = _cfg().get("color", Color.WHITE).lerp(Color(0.3, 1.0, 0.35), 0.35)
+		else:
+			_update_visual()
+		return
 	if _base_material == null:
 		return
 	if on:
