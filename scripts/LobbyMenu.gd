@@ -38,18 +38,31 @@ func _ready() -> void:
 	_load_recent_rooms()
 	_load_servers()
 	_build_ui()
-	# Signaux de l'autoload Lobby.
-	Lobby.player_connected.connect(_on_player_connected)
-	Lobby.player_disconnected.connect(_on_player_disconnected)
-	Lobby.connection_status.connect(_on_status)
-	Lobby.chat_received.connect(_on_chat)
-	Lobby.server_disconnected.connect(_on_server_disconnected)
-	Lobby.roster_changed.connect(_on_roster_changed)
+	# Signaux de l'autoload Lobby (récupéré au runtime pour fiabilité).
+	var lobby := _lobby()
+	lobby.player_connected.connect(_on_player_connected)
+	lobby.player_disconnected.connect(_on_player_disconnected)
+	lobby.connection_status.connect(_on_status)
+	lobby.chat_received.connect(_on_chat)
+	lobby.server_disconnected.connect(_on_server_disconnected)
+	lobby.roster_changed.connect(_on_roster_changed)
 	_on_status("Prêt. Créez ou rejoignez une partie.")
 	_refresh_players()
 	_refresh_recent()
 	# Si on arrive via un lien (web) ou des args, on rejoint directement la room.
 	_auto_join_from_entry()
+
+## Accesseurs des autoloads via get_node : évite les erreurs « Identifier not
+## found » au parse (l'analyseur ne connaît pas toujours les singletons selon
+## l'ordre de chargement du cache de l'éditeur). Au runtime /root/Langs existe.
+func _langs() -> Node:
+	return get_node("/root/Langs")
+
+func _lobby() -> Node:
+	return get_node("/root/Lobby")
+
+func _translator() -> Node:
+	return get_node("/root/Translator")
 
 ## Rejoint automatiquement une room fournie par :
 ##  - un paramètre d'URL web « ?room=CODE » (via JavaScriptBridge),
@@ -125,33 +138,44 @@ func _build_ui() -> void:
 	glow.modulate = Color(1, 1, 1, 0.28)
 	add_child(glow)
 
-	# ---- Contenu centré, largeur responsive (mobile plein, PC ~640 max).
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
+	# ---- Contenu : panneau bois+or pleine largeur/hauteur.
+	#     Une seule taille cohérente : marge selon la largeur d'écran.
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	var pad := 6.0 if vp_size.x < 720.0 else 18.0
+	var outer := MarginContainer.new()
+	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	outer.add_theme_constant_override("margin_left", int(pad))
+	outer.add_theme_constant_override("margin_right", int(pad))
+	outer.add_theme_constant_override("margin_top", int(pad))
+	outer.add_theme_constant_override("margin_bottom", int(pad))
+	add_child(outer)
+
 	var panel := PanelContainer.new()
-	var panel_w := clampf(vp_size.x * 0.94, 300.0, 640.0)
-	panel.custom_minimum_size = Vector2(panel_w, 0)
-	panel.size_flags_vertical = Control.SIZE_SHRINK_END
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Sur écran très large (>1200), on borne la largeur utile pour rester lisible.
+	if vp_size.x >= 1200.0:
+		panel.custom_minimum_size = Vector2(960.0, 0)
 	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.13, 0.1, 0.075, 0.96)
+	ps.bg_color = Color(0.13, 0.1, 0.075, 0.97)
 	ps.border_color = Color(0.85, 0.66, 0.3, 0.9)
 	ps.set_border_width_all(2)
 	ps.corner_radius_top_left = 14
 	ps.corner_radius_top_right = 14
 	ps.corner_radius_bottom_left = 14
 	ps.corner_radius_bottom_right = 14
-	ps.content_margin_left = 20
-	ps.content_margin_right = 20
-	ps.content_margin_top = 22
-	ps.content_margin_bottom = 18
+	ps.content_margin_left = 16
+	ps.content_margin_right = 16
+	ps.content_margin_top = 18
+	ps.content_margin_bottom = 16
 	panel.add_theme_stylebox_override("panel", ps)
-	center.add_child(panel)
+	outer.add_child(panel)
 
-	# Défilable (évite la coupure sur petit écran mobile).
-	var scroll_h := maxf(340.0, vp_size.y * 0.86)
+	# Défilable (remplit le panneau, évite la coupure sur petit écran mobile).
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, scroll_h)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
 	var vb := VBoxContainer.new()
 	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -163,10 +187,11 @@ func _build_ui() -> void:
 	var title := Label.new()
 	title.text = "The Last Clan"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 36)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
 	title.add_theme_color_override("font_outline_color", Color(0.1, 0.06, 0.03, 0.95))
-	title.add_theme_constant_override("outline_size", 10)
+	title.add_theme_constant_override("outline_size", 4)
 	vb.add_child(title)
 	var tagline := Label.new()
 	tagline.text = "Rejoignez votre clan et bâtissez votre royaume"
@@ -180,7 +205,7 @@ func _build_ui() -> void:
 	vb.add_child(_field_label("Votre nom"))
 	_name_input = LineEdit.new()
 	_name_input.placeholder_text = "Entrez votre nom…"
-	_name_input.text = Lobby.player_info.get("name", "Joueur")
+	_name_input.text = _lobby().player_info.get("name", "Joueur")
 	_name_input.custom_minimum_size = Vector2(0, 42)
 	_stylize_field(_name_input)
 	vb.add_child(_name_input)
@@ -189,14 +214,14 @@ func _build_ui() -> void:
 	var lang_row := HBoxContainer.new()
 	lang_row.add_theme_constant_override("separation", 8)
 	vb.add_child(lang_row)
-	lang_row.add_child(_field_label(Langs.t("ui.chat") + " / Langue :"))
+	lang_row.add_child(_field_label(_langs().t("ui.chat") + " / Langue :"))
 	var _lang = OptionButton.new()
 	_lang.custom_minimum_size = Vector2(0, 38)
 	_lang.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_stylize_button(_lang)
-	for lang_code in Langs.available_languages():
-		_lang.add_item("%s %s" % [Langs.code_to_flag(lang_code), Langs.lang_name(lang_code)])
-		if lang_code == Langs.language:
+	for lang_code in _langs().available_languages():
+		_lang.add_item("%s %s" % [_langs().code_to_flag(lang_code), _langs().lang_name(lang_code)])
+		if lang_code == _langs().language:
 			_lang.select(_lang.item_count - 1)
 	_lang.item_selected.connect(_on_language_selected)
 	lang_row.add_child(_lang)
@@ -458,7 +483,7 @@ func _on_recent_pressed(code: String) -> void:
 
 func _connect(code: String) -> void:
 	_remember_room(code)
-	Lobby.join_room(code)
+	_lobby().join_room(code)
 
 ## Lance une 2e instance du jeu (nouvelle fenêtre) rejoignant la même room,
 ## pour tester le multijoueur localement (2 vrais clients sur le même réseau).
@@ -469,7 +494,7 @@ func _on_spawn_test_player() -> void:
 		code = _generate_code()
 		_create_code_input.text = code
 	# Assure que CE joueur est bien connecté à la room avant d'en lancer un second.
-	if not Lobby.is_online:
+	if not _lobby().is_online:
 		_connect(code)
 	_on_status("Lancement du 2e joueur (Joueur2) dans « %s »…" % code)
 	var project_path := ProjectSettings.globalize_path("res://")
@@ -485,7 +510,7 @@ func _on_spawn_test_player() -> void:
 		_on_status("Échec du lancement de la 2e instance (code %d)." % err)
 
 func _on_copy_invite() -> void:
-	var code := Lobby.room_id
+	var code: String = str(_lobby().room_id)
 	if code.is_empty():
 		code = _create_code_input.text.strip_edges()
 	if code.is_empty():
@@ -501,17 +526,17 @@ func _generate_code() -> String:
 	return out
 
 func _on_language_selected(index: int) -> void:
-	var langs := Langs.available_languages()
+	var langs: Array = _langs().available_languages()
 	if index >= 0 and index < langs.size():
-		Langs.language = langs[index]
-		_on_status("Langue : %s" % Langs.lang_name(Langs.language))
+		_langs().language = langs[index]
+		_on_status("Langue : %s" % _langs().lang_name(_langs().language))
 
 func _apply_name() -> void:
 	var player_name := _name_input.text.strip_edges()
 	if not player_name.is_empty():
-		Lobby.player_info["name"] = player_name
+		_lobby().player_info["name"] = player_name
 	# Embarque la langue du joueur pour l'affichage international (roster/chat).
-	Lobby.player_info["lang"] = Langs.language
+	_lobby().player_info["lang"] = _langs().language
 
 func _on_chat_send() -> void:
 	_send_chat_text()
@@ -523,7 +548,7 @@ func _send_chat_text() -> void:
 	var text := _chat_input.text
 	if text.strip_edges().is_empty():
 		return
-	Lobby.send_chat(text)
+	_lobby().send_chat(text)
 	_chat_input.clear()
 	_chat_input.grab_focus()
 
@@ -536,7 +561,7 @@ func _on_launch_pressed() -> void:
 func _on_offline_pressed() -> void:
 	_apply_name()
 	# Force un mode 100 % hors ligne : pas de WebSocket, base à l'origine.
-	Lobby._go_offline()
+	_lobby()._go_offline()
 	_on_status("Mode hors ligne — lancement de la partie en solo…")
 	_auto_launch = false
 	_launch_game()
@@ -551,7 +576,7 @@ func _launch_game() -> void:
 func _on_player_connected(peer_id: int, _info: Dictionary) -> void:
 	_refresh_players()
 	_update_launch()
-	if _auto_launch and Lobby.is_online and peer_id == Lobby.my_id:
+	if _auto_launch and _lobby().is_online and peer_id == _lobby().my_id:
 		_auto_launch = false
 		_launch_game()
 
@@ -561,7 +586,7 @@ func _on_player_disconnected(_peer_id: int) -> void:
 func _on_status(text: String) -> void:
 	_status_label.text = text
 	# Dès qu'on est connecté, on active la copie d'invitation.
-	if Lobby.is_online and not Lobby.room_id.is_empty():
+	if _lobby().is_online and not _lobby().room_id.is_empty():
 		_invite_button.disabled = false
 
 func _on_server_disconnected() -> void:
@@ -575,29 +600,29 @@ func _on_roster_changed() -> void:
 func _on_chat(author: String, text: String, src_lang: String = "en") -> void:
 	# Chat international : on affiche dans la langue du joueur via le moteur de
 	# traduction (Translator). Tant que le moteur est inactif, texte original.
-	var res := Translator.translate(text, src_lang)
+	var res: Dictionary = _translator().translate(text, src_lang)
 	var shown: String = res["text"]
-	var flag := Langs.code_to_flag(src_lang)
+	var flag: String = _langs().code_to_flag(src_lang)
 	if res["auto"]:
-		_chat_log.append_text("[b]%s[/b] %s : %s  [i](%s)[/i]\n" % [flag, author, shown, Langs.lang_name(src_lang)])
+		_chat_log.append_text("[b]%s[/b] %s : %s  [i](%s)[/i]\n" % [flag, author, shown, _langs().lang_name(src_lang)])
 	else:
 		_chat_log.append_text("[b]%s[/b] %s : %s\n" % [flag, author, shown])
 
 func _refresh_players() -> void:
 	for child in _players_box.get_children():
 		child.queue_free()
-	var ids: Array = Lobby.players.keys()
+	var ids: Array = _lobby().players.keys()
 	ids.sort()
 	for id in ids:
-		var info: Dictionary = Lobby.players[id]
+		var info: Dictionary = _lobby().players[id]
 		var pname := str(info.get("name", "Joueur %d" % id))
-		var me := " (vous)" if (Lobby.is_online and id == Lobby.my_id) else ""
+		var me := " (vous)" if (_lobby().is_online and id == _lobby().my_id) else ""
 		var l := Label.new()
 		l.text = "• %s%s" % [pname, me]
 		_players_box.add_child(l)
 
 func _update_launch() -> void:
-	_launch_button.disabled = not Lobby.is_online
+	_launch_button.disabled = not _lobby().is_online
 
 ## --- Parties récentes (mémoire locale) ---
 
@@ -696,11 +721,11 @@ func _on_server_pressed(transport: String, address: String, room: String = "") -
 			return
 		_on_status("Connexion au royaume « %s » (relais officiel)…" % room)
 		_auto_launch = true
-		Lobby.join_room(room)
+		_lobby().join_room(room)
 		return
 	if address.is_empty():
 		_on_status("Ce serveur n'a pas d'adresse configurée.")
 		return
 	_on_status("Connexion au serveur « %s » (%s, royaume %s)…" % [address, transport, room])
 	_auto_launch = true
-	Lobby.join_server(transport, address, room)
+	_lobby().join_server(transport, address, room)
