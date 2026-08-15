@@ -27,6 +27,7 @@ Langs="*res://scripts/I18n.gd"
 Clans="*res://scripts/Clans.gd"
 Translator="*res://scripts/Translator.gd"
 Realm="*res://scripts/Realm.gd"
+GameConfig="*res://scripts/GameConfig.gd"
 
 [display]
 

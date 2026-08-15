@@ -63,6 +63,7 @@ const STRINGS := {
 	"ui.close": {"en": "Close", "fr": "Fermer"},
 	"ui.play": {"en": "Play", "fr": "Jouer"},
 	"ui.suggest": {"en": "Suggest an idea", "fr": "Suggérer une amélioration"},
+	"ui.admin": {"en": "Admin (modify gameplay)", "fr": "Admin (modifier le jeu)"},
 	"help.title": {"en": "Help / How to play", "fr": "Aide / Comment jouer"},
 	"help.alpha": {"en": "This is an ALPHA test build: bugs are possible.",
 				   "fr": "Jeu en version ALPHA de test : des bugs sont possibles."},

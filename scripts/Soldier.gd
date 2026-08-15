@@ -35,6 +35,11 @@ var _target: Node3D = null
 var _attack_cd: float = 0.0
 
 func _ready() -> void:
+	# PV et stats configurables via le panneau admin (mode admin).
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		max_hp = int(gc.get_value("unite.soldat.pv"))
+		hp = max_hp
 	# AnimationPlayer fourni par le modèle (VillagerModel).
 	var model := get_node_or_null("Model") as VillagerModel
 	if model != null:
@@ -45,6 +50,34 @@ func _ready() -> void:
 	# (il traverse arbres/bâtiments). Sans ça il peut dériver verticalement et
 	# paraître "disparaître" lorsqu'on le déplace.
 	collision_mask = 8
+
+## Vitesse configurable (panneau admin) — retombe sur MOVE_SPEED.
+func _move_speed() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return float(gc.get_value("unite.soldat.vitesse"))
+	return MOVE_SPEED
+
+## Dégâts configurable.
+func _atk_damage() -> int:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return int(gc.get_value("unite.soldat.degats"))
+	return ATTACK_DAMAGE
+
+## Portée configurable.
+func _atk_range() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return float(gc.get_value("unite.soldat.portee"))
+	return ATTACK_RANGE
+
+## Cadence d'attaque configurable.
+func _atk_cd() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return float(gc.get_value("unite.soldat.cadence"))
+	return ATTACK_COOLDOWN
 
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
@@ -127,7 +160,7 @@ func _nearest_enemy(attacker_pos: Vector3 = Vector3.ZERO) -> Node3D:
 func _move(delta: float) -> void:
 	if _target != null and is_instance_valid(_target):
 		nav_agent.target_position = _target.global_position
-		if global_position.distance_to(_target.global_position) <= ATTACK_RANGE:
+		if global_position.distance_to(_target.global_position) <= _atk_range():
 			_state = State.ATTACK
 			return
 	elif nav_agent.is_navigation_finished() and global_position.distance_to(_move_point) <= REACH_DISTANCE:
@@ -140,12 +173,12 @@ func _attack(_delta: float) -> void:
 		_target = null
 		_state = State.IDLE
 		return
-	if global_position.distance_to(_target.global_position) > ATTACK_RANGE:
+	if global_position.distance_to(_target.global_position) > _atk_range():
 		_state = State.MOVE
 		return
 	if _attack_cd <= 0.0 and _target.has_method("take_damage"):
-		_target.call("take_damage", ATTACK_DAMAGE, self.global_position)
-		_attack_cd = ATTACK_COOLDOWN
+		_target.call("take_damage", _atk_damage(), self.global_position)
+		_attack_cd = _atk_cd()
 
 func _step(_delta: float) -> void:
 	var target := nav_agent.target_position
@@ -154,7 +187,7 @@ func _step(_delta: float) -> void:
 	var dist := dir.length()
 	if dist > 0.001:
 		dir = dir.normalized()
-		velocity = dir * MOVE_SPEED * minf(1.0, dist / 1.5)
+		velocity = dir * _move_speed() * minf(1.0, dist / 1.5)
 		_facing(dir)
 	else:
 		velocity = Vector3.ZERO

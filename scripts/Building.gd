@@ -152,7 +152,76 @@ func is_full_level() -> bool: return level >= max_level()
 func min_th_level() -> int: return _cfg().get("min_th_level", 0)
 
 func _cfg() -> Dictionary:
-	return TYPES[type]
+	# Copie la config de base puis superpose les surcharges du panneau admin.
+	var out: Dictionary = TYPES[type].duplicate(true)
+	_apply_cfg_overrides(out)
+	return out
+
+## Retourne le préfixe de clé GameConfig pour ce type de bâtiment, ou "".
+func _cfg_prefix() -> String:
+	match type:
+		Type.TOWN_HALL: return "batiment.hdv."
+		Type.BARRACKS: return "batiment.caserne."
+		Type.HOUSE: return "batiment.maison."
+		Type.TOWER: return "batiment.tour."
+		Type.FERME: return "batiment.ferme."
+		Type.CARRIERE: return "batiment.carriere."
+		Type.MINE_OR: return "batiment.mine."
+	return ""
+
+## Superpose sur `cfg` les valeurs éditables du panneau admin (si présent).
+func _apply_cfg_overrides(cfg: Dictionary) -> void:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc == null:
+		return
+	var pre := _cfg_prefix()
+	if pre.is_empty():
+		return
+	var map := {
+		"cost_gold": pre + "cout_or",
+		"cost_wood": pre + "cout_bois",
+		"cost_stone": pre + "cout_pierre",
+		"upg_gold": pre + "ameli_or",
+		"upg_wood": pre + "ameli_bois",
+		"upg_stone": pre + "ameli_pierre",
+		"attack_damage": pre + "degats",
+	}
+	if type == Type.HOUSE and gc.get_value(pre + "pop") != null:
+		cfg["pop_provided"] = gc.get_value(pre + "pop")
+	for src in map:
+		if gc.get_value(map[src]) != null and cfg.has(src):
+			cfg[src] = gc.get_value(map[src])
+	if type == Type.TOWN_HALL:
+		if gc.get_value("recrutement.paysan.or") != null:
+			cfg["recruit_gold"] = gc.get_value("recrutement.paysan.or")
+		if gc.get_value("recrutement.paysan.nourriture") != null:
+			cfg["recruit_food"] = gc.get_value("recrutement.paysan.nourriture")
+	if type == Type.BARRACKS:
+		if gc.get_value("recrutement.soldat.or") != null:
+			cfg["train_gold"] = gc.get_value("recrutement.soldat.or")
+		if gc.get_value("recrutement.soldat.bois") != null:
+			cfg["train_wood"] = gc.get_value("recrutement.soldat.bois")
+		if gc.get_value("recrutement.soldat.temps") != null:
+			cfg["train_time"] = gc.get_value("recrutement.soldat.temps")
+	if cfg.has("production"):
+		var prod := {}
+		var eco_map := {
+			"gold": "economie.or.taux",
+			"food": "economie.nourriture.taux",
+			"stone": "economie.pierre.taux",
+		}
+		for res in cfg["production"]:
+			var k: String = eco_map.get(res, "")
+			if k.is_empty():
+				prod[res] = cfg["production"][res]
+				continue
+			var v: Variant = gc.get_value(k)
+			prod[res] = v if v != null else cfg["production"][res]
+		cfg["production"] = prod
+		if type == Type.TOWN_HALL:
+			var hdv_v: Variant = gc.get_value("economie.gold.taux")
+			if hdv_v != null:
+				cfg["production"] = {"gold": hdv_v}
 
 ## Coût d'upgrade pour passer du niveau actuel au suivant (ou {} si max).
 func get_upgrade_cost() -> Dictionary:

@@ -80,6 +80,11 @@ var _anim_prev_pos: Vector3 = Vector3.ZERO
 var _anim_moving_buf: float = 0.0
 
 func _ready() -> void:
+	# PV et stats configurables via le panneau admin (mode admin).
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		max_hp = int(gc.get_value("unite.paysan.pv"))
+		hp = max_hp
 	# AnimationPlayer : le modèle (VillagerModel) construit son AnimationPlayer
 	# interne dans son propre _ready (exécuté avant celui-ci). On le récupère
 	# via l'API du modèle pour rester robuste à la structure interne.
@@ -111,6 +116,34 @@ func _ready() -> void:
 	# assignée depuis main.gd (ressource la plus proche) -> allers-retours infinis.
 	_anim_prev_pos = global_position
 	set_state(State.IDLE)
+
+## Vitesse configurable (panneau admin) — retombe sur MOVE_SPEED.
+func _move_speed() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return float(gc.get_value("unite.paysan.vitesse"))
+	return MOVE_SPEED
+
+## Temps de récolte configurable (panneau admin).
+func _gather_time() -> float:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return float(gc.get_value("unite.paysan.recolte"))
+	return GATHER_TIME
+
+## Charge max configurable (panneau admin).
+func _max_carried() -> int:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return int(gc.get_value("unite.paysan.charge"))
+	return MAX_CARRIED
+
+## Dégâts/multiplicateur d'attaque configurables.
+func _atk_damage() -> int:
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		return int(gc.get_value("unite.paysan.degats"))
+	return ATTACK_DAMAGE
 
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
@@ -269,7 +302,7 @@ func _gather(delta: float) -> void:
 	nav_agent.avoidance_enabled = false
 	velocity = Vector3.ZERO
 	_gather_timer += delta
-	if _gather_timer >= GATHER_TIME:
+	if _gather_timer >= _gather_time():
 		_gather_timer = 0.0
 		if _assigned_resource != null and _assigned_resource.has_left():
 			# RENDEMENT ALÉATOIRE : récolte entre 1 et 5 unités à chaque coup.
@@ -283,7 +316,7 @@ func _gather(delta: float) -> void:
 		# ALLER-RETOUR : dès que le paysan transporte MAINTENANT une charge complète
 		# (MAX_CARRIED), il rentre livrer à l'hôtel de ville, même si la ressource
 		# a encore du stock. L'économie n'est créditée qu'au DÉPÔT, pas à la récolte.
-		if _carried_amount >= MAX_CARRIED:
+		if _carried_amount >= _max_carried():
 			if _town_hall != null:
 				nav_agent.target_position = _town_hall.global_position
 				set_state(State.RETURNING)
@@ -467,7 +500,7 @@ func _attack(_delta: float) -> void:
 			set_state(State.GOING_TO_ATTACK)
 			return
 		if _attack_cd <= 0.0 and _assigned_attack.has_method("take_damage"):
-			_assigned_attack.call("take_damage", ATTACK_DAMAGE, self.global_position)
+			_assigned_attack.call("take_damage", _atk_damage(), self.global_position)
 			_attack_cd = ATTACK_COOLDOWN
 	else:
 		_assigned_attack = null
@@ -534,7 +567,7 @@ func _stuck_check(delta: float) -> bool:
 		var next := nav_agent.get_next_path_position()
 		var dir := global_position.direction_to(next)
 		if dir.length_squared() > 0.0001:
-			velocity = dir * MOVE_SPEED
+			velocity = dir * _move_speed()
 		else:
 			velocity = Vector3.ZERO
 		return true
@@ -555,7 +588,7 @@ func _step(_delta: float) -> void:
 	
 	var desired := Vector3.ZERO
 	if dist > 0.001:
-		desired = to_target.normalized() * MOVE_SPEED
+		desired = to_target.normalized() * _move_speed()
 		_facing(to_target)
 	
 	_apply_movement(desired)

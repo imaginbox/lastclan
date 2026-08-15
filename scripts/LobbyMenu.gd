@@ -289,6 +289,14 @@ func _build_ui() -> void:
 	suggest_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(suggest_btn)
 
+	# ---- Accès administrateur (modifie le gameplay) — cadenas discret.
+	var admin_btn := _big_button("◆ " + _langs().t("ui.admin"), _on_admin_pressed, false)
+	admin_btn.name = "AdminButton"
+	admin_btn.custom_minimum_size = Vector2(0, _gd(44))
+	admin_btn.add_theme_font_size_override("font_size", _gd(15))
+	admin_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(admin_btn)
+
 	# ---- Statut de connexion.
 	_status_label = Label.new()
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -542,6 +550,11 @@ func _on_toggle_help() -> void:
 func _open_suggestions() -> void:
 	_apply_name()
 	get_tree().change_scene_to_file("res://scenes/SuggestionMenu.tscn")
+
+## Ouvre le panneau d'administration (mot de passe) — modifie le gameplay.
+func _on_admin_pressed() -> void:
+	_apply_name()
+	get_tree().change_scene_to_file("res://scenes/AdminMenu.tscn")
 
 ## --- Réactions aux signaux ---
 

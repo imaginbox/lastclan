@@ -22,6 +22,18 @@ var population: int = 0
 var population_cap: int = 0
 
 func _ready() -> void:
+	# Applique les ressources de départ configurées dans le panneau admin.
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		var v: Variant = gc.get_value("jeu.ressources.initial_or")
+		if v != null:
+			gold = int(v)
+		v = gc.get_value("jeu.ressources.initial_bois")
+		if v != null:
+			wood = int(v)
+		v = gc.get_value("jeu.ressources.initial_pierre")
+		if v != null:
+			stone = int(v)
 	resources_changed.emit(gold, wood, stone, food)
 	population_changed.emit(population, population_cap)
 
