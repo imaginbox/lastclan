@@ -1523,11 +1523,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				# (sol, ressource ou ennemi), comme sur tactile.
 				if _order_armed:
 					var m: int = _order_mode
-					_order_armed = false
-					_order_mode = OrderMode.NONE
-					if _order_hint != null:
-						_order_hint.visible = false
-					_refresh_order_button()
+					# Héros : le mode RESTE armé pour enchaîner les ordres (CoD/RoK).
+					if not _is_hero_selected():
+						_order_armed = false
+						_order_mode = OrderMode.NONE
+						if _order_hint != null:
+							_order_hint.visible = false
+						_refresh_order_button()
 					_dragging = false
 					_drag_selecting = false
 					_order_action(event.position, m)
@@ -1563,11 +1565,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _tap_allowed:
 				if _order_armed:
 					var m: int = _order_mode
-					_order_armed = false
-					_order_mode = OrderMode.NONE
-					if _order_hint != null:
-						_order_hint.visible = false
-					_refresh_order_button()
+					# Héros : le mode RESTE armé pour enchaîner les ordres (CoD/RoK).
+					if not _is_hero_selected():
+						_order_armed = false
+						_order_mode = OrderMode.NONE
+						if _order_hint != null:
+							_order_hint.visible = false
+						_refresh_order_button()
 					_order_action(event.position, m)
 				elif _ghost_active():
 					_confirm_ghost()
@@ -3054,6 +3058,11 @@ func _refresh_order_button() -> void:
 		_highlight_order_buttons()
 	if _unit_panel != null and not has_units:
 		_unit_panel.visible = false
+
+## Vrai si l'unité sélectionnée (unique) est le héros → le mode d'ordre reste
+## armé en permanence pour enchaîner les déplacements/attaques (style CoD/RoK).
+func _is_hero_selected() -> bool:
+	return _selected_units.size() == 1 and is_instance_valid(_selected_units[0]) and _selected_units[0] is Hero
 
 # ============================================================ UI : CONSTRUCTION
 

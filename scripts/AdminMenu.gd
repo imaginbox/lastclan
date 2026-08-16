@@ -313,10 +313,7 @@ func _add_sub_header(col: VBoxContainer, sub: String) -> VBoxContainer:
 		hb.content_margin_right = _px(10)
 		h.add_theme_stylebox_override(st, hb)
 	var g: VBoxContainer = group
-	h.pressed.connect(func(gg: VBoxContainer = g) -> void:
-		gg.visible = not gg.visible
-		h.text = (sub + "  ▼") if gg.visible else (sub + "  ▶")
-	)
+	h.pressed.connect(_toggle_sub_group.bind(g, h, sub))
 	col.add_child(h)
 	col.add_child(group)
 	return group
@@ -348,9 +345,7 @@ func _make_param_row(_cat: String, p: Dictionary) -> Control:
 		le.text = str(gc.get_value(key))
 		le.custom_minimum_size = Vector2(_px(180), _px(38))
 		_stylize_field(le)
-		le.text_submitted.connect(func(_t: String, k: String = key) -> void:
-			gc.set_value(k, _t)
-		)
+		le.text_submitted.connect(_on_text_submitted.bind(gc, key))
 		row.add_child(le)
 		_add_param_help(cell, gc, key)
 		return cell
@@ -361,9 +356,7 @@ func _make_param_row(_cat: String, p: Dictionary) -> Control:
 		cb.text = "Activé"
 		cb.button_pressed = bool(gc.get_value(key))
 		cb.add_theme_font_size_override("font_size", _px(14))
-		cb.pressed.connect(func(k: String = key, c: CheckBox = cb) -> void:
-			gc.set_value(k, c.button_pressed)
-		)
+		cb.pressed.connect(_on_bool_toggled.bind(gc, key, cb))
 		row.add_child(cb)
 		_add_param_help(cell, gc, key)
 		return cell
@@ -375,12 +368,23 @@ func _make_param_row(_cat: String, p: Dictionary) -> Control:
 	sb.value = float(gc.get_value(key))
 	sb.custom_minimum_size = Vector2(_px(170), _px(38))
 	var fmt: int = 2 if kind == GameConfig.Kind.FLOAT else 0
-	sb.value_changed.connect(func(v: float, k: String = key, _f: int = fmt) -> void:
-		gc.set_value(k, v)
-	)
+	sb.value_changed.connect(_on_value_changed.bind(gc, key))
 	row.add_child(sb)
 	_add_param_help(cell, gc, key)
 	return cell
+
+func _toggle_sub_group(g: VBoxContainer, h: Button, sub: String) -> void:
+	g.visible = not g.visible
+	h.text = (sub + "  ▼") if g.visible else (sub + "  ▶")
+
+func _on_text_submitted(_t: String, gc: Node, key: String) -> void:
+	gc.set_value(key, _t)
+
+func _on_bool_toggled(gc: Node, key: String, cb: CheckBox) -> void:
+	gc.set_value(key, cb.button_pressed)
+
+func _on_value_changed(v: float, gc: Node, key: String) -> void:
+	gc.set_value(key, v)
 
 ## Ajoute une petite ligne d'aide sous le paramètre (si GameConfig en déclare une).
 func _add_param_help(cell: VBoxContainer, gc: Node, key: String) -> void:

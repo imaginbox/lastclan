@@ -413,9 +413,8 @@ func die() -> void:
 
 func _facing(dir: Vector3) -> void:
 	if dir.length_squared() > 0.01:
-		var t := Transform3D()
-		t.basis = Basis.looking_at(dir.normalized(), Vector3.UP)
-		global_transform.basis.slerp(basis, 0.1)
+		# Applique réellement la rotation (le modèle doit se tourner vers la cible).
+		look_at(global_position + dir, Vector3.UP)
 
 func _anim(_anim_name: StringName) -> void:
 	if anim_player != null and anim_player.has_animation(_anim_name):
