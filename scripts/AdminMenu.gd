@@ -272,12 +272,54 @@ func _build_tabs(tabs: TabContainer) -> void:
 		col.add_theme_constant_override("separation", _px(8))
 		scroll.add_child(col)
 
+		var last_sub := ""
+		var group: VBoxContainer = null
 		for p in gc.params_in_cat(cat):
-			col.add_child(_make_param_row(cat_name, p))
+			var sub := String(p.get("sub", ""))
+			if sub != last_sub:
+				last_sub = sub
+				group = _add_sub_header(col, sub)
+				group.visible = true
+			if group != null:
+				group.add_child(_make_param_row(cat_name, p))
 
 		if first:
 			tabs.current_tab = 0
 			first = false
+
+## Ajoute une sous-rubrique accordéon : un en-tête cliquable qui replie/déplie
+## le groupe de paramètres qu'il précède. Retourne le conteneur du groupe.
+func _add_sub_header(col: VBoxContainer, sub: String) -> VBoxContainer:
+	var group := VBoxContainer.new()
+	group.add_theme_constant_override("separation", _px(6))
+
+	var h := Button.new()
+	h.text = sub + "  ▼"
+	h.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	h.add_theme_font_size_override("font_size", _px(15))
+	h.add_theme_color_override("font_color", Color(1.0, 0.82, 0.5))
+	h.add_theme_color_override("font_hover_color", Color(1.0, 0.92, 0.7))
+	h.add_theme_color_override("font_outline_color", Color(0.1, 0.07, 0.03, 0.95))
+	h.add_theme_constant_override("outline_size", 2)
+	h.custom_minimum_size = Vector2(0, _px(26))
+	# Fond d'en-tête : bande bois foncé.
+	for st in ["normal", "hover", "pressed", "focus"]:
+		var hb := StyleBoxFlat.new()
+		hb.bg_color = Color(0.18, 0.13, 0.09, 0.95) if st != "hover" else Color(0.26, 0.19, 0.12, 1.0)
+		hb.border_color = Color(0.85, 0.66, 0.3, 0.5)
+		hb.set_border_width_all(1)
+		hb.set_corner_radius_all(6)
+		hb.content_margin_left = _px(10)
+		hb.content_margin_right = _px(10)
+		h.add_theme_stylebox_override(st, hb)
+	var g: VBoxContainer = group
+	h.pressed.connect(func(gg: VBoxContainer = g) -> void:
+		gg.visible = not gg.visible
+		h.text = (sub + "  ▼") if gg.visible else (sub + "  ▶")
+	)
+	col.add_child(h)
+	col.add_child(group)
+	return group
 
 func _make_param_row(_cat: String, p: Dictionary) -> Control:
 	var gc := _gc()
