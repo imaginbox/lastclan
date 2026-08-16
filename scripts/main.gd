@@ -793,9 +793,13 @@ func _spawn_villagers() -> void:
 func _spawn_hero() -> void:
 	var h: Node3D = HERO_SCENE.instantiate()
 	villager_root.add_child(h)
-	h.global_position = _base_origin + Vector3(0.0, 0.0, -1.0)
+	# Spot ouvert, bien visible à côté du village (PAS sous l'HDV).
+	h.global_position = _base_origin + Vector3(4.0, 0.0, 3.0)
 	h.add_to_group("hero")
-	_add_local_unit_visuals(h)
+	h.call("set_selected", true)
+	# Cercle au sol DORÉ distinct + barre de vie, pour bien repérer le héros.
+	h.add_child(_make_ground_circle(Color(1.0, 0.82, 0.15)))
+	h.add_child(_make_health_bar_node())
 
 func _add_default_task(villager: Node3D) -> void:
 	var rn := _nearest_resource_node(villager.global_position)

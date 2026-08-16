@@ -18,5 +18,6 @@ shape = SubResource("CapsuleShape_1")
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
 script = ExtResource("2_model")
 tint = Color(1.0, 0.82, 0.15, 1)
+scale = Vector3(1.35, 1.35, 1.35)
 
 [node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
