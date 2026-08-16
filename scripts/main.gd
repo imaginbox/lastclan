@@ -3011,7 +3011,11 @@ func _refresh_building_panel() -> void:
 	# Boutons.
 	var cost := b.get_upgrade_cost()
 	if cost.is_empty():
-		_upgrade_button.text = "Niveau max"
+		# Distingue « niveau max du bâtiment » de « bloqué par le niveau de l'HDV ».
+		if b.building_type() != Building.Type.TOWN_HALL and b.level < b.max_level():
+			_upgrade_button.text = "Niveau max (HDV niv %d)" % b.town_hall_level()
+		else:
+			_upgrade_button.text = "Niveau max"
 		_upgrade_button.disabled = true
 	else:
 		_upgrade_button.text = "Améliorer (%d or, %d bois)" % [cost["gold"], cost["wood"]]

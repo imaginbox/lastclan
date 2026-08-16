@@ -151,9 +151,41 @@ func building_display_name() -> String: return _cfg().get("name", "Bâtiment")
 func footprint() -> int: return _cfg().get("footprint", 1)
 func max_level() -> int: return _cfg().get("max_level", 3)
 func building_type() -> Type: return type
-func is_full_level() -> bool: return level >= max_level()
+
+## Niveau actuel de l'hôtel de ville (0 si absent/hors arbre).
+func town_hall_level() -> int:
+	# Hors arbre (tests, instantiation directe) on ne peut pas retrouver l'HDV :
+	# on n'applique aucune restriction (niveau très élevé).
+	if not is_inside_tree():
+		return 999
+	var th := get_tree().get_first_node_in_group("town_hall")
+	if th is Building:
+		return th.level
+	return 0
+
+## Niveau maximal EFFECTIF : un bâtiment (hors HDV) ne peut jamais dépasser le
+## niveau de l'hôtel de ville. La HDV, elle, monte jusqu'à son max_level.
+func effective_max_level() -> int:
+	if type == Type.TOWN_HALL:
+		return max_level()
+	return mini(max_level(), town_hall_level())
+
+## Vrai si ce bâtiment a atteint son niveau maximal effectif (max_level OU HDV).
+func is_full_level() -> bool: return level >= effective_max_level()
 ## Niveau d'hôtel de ville requis pour débloquer ce bâtiment.
 func min_th_level() -> int: return _cfg().get("min_th_level", 0)
+
+## Multiplicateur d'échelle visuelle du sprite (réglable dans l'admin, défaut 1.0).
+func visual_scale_mult() -> float:
+	if not is_inside_tree():
+		return 1.0
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc == null:
+		return 1.0
+	var v: Variant = gc.get_value(_cfg_prefix() + "echelle")
+	if v == null:
+		return 1.0
+	return maxf(float(v), 0.1)
 
 func _cfg() -> Dictionary:
 	# Copie la config de base puis superpose les surcharges du panneau admin.
@@ -429,6 +461,7 @@ func _build_visual() -> void:
 			# l'affichage au-delà de l'empreinte pour dominer le village ; la
 			# collision garde l'empreinte réelle.
 			var vs := HDV_VISUAL_SCALE if type == Type.TOWN_HALL else BUILDING_VISUAL_SCALE
+			vs *= visual_scale_mult()
 			_sprite.pixel_size = (f * vs) / float(tsize.x)
 		else:
 			_sprite.pixel_size = 1.0
@@ -454,7 +487,10 @@ func _build_visual() -> void:
 		_base_material.albedo_color = color
 		_mesh.material_override = _base_material
 		add_child(_mesh)
-		_mesh.position.y = h / 2.0
+		# Échelle visuelle réglable (ne touche pas la collision ni l'empreinte).
+		var vsm := visual_scale_mult()
+		_mesh.scale = Vector3(vsm, vsm, vsm)
+		_mesh.position.y = (h / 2.0) * vsm
 
 	# Collision physique (idente pour les deux rendus) : un parallélépipède taille
 	# empreinte × hauteur, pour que le bâtiment reste un obstacle RTS solide.
@@ -484,7 +520,7 @@ func _building_texture() -> Texture2D:
 				var t := load(img) as Texture2D
 				if t != null:
 					return t
-	var lvl := clampi(level, 1, max_level())
+	var lvl := clampi(level, 1, effective_max_level())
 	var path := "res://assets/models/Batiments/%s-%d.png" % [folder, lvl]
 	return load(path) as Texture2D
 
