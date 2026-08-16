@@ -40,6 +40,7 @@ func _ready() -> void:
 	if gc != null:
 		max_hp = int(gc.get_value("unite.soldat.pv"))
 		hp = max_hp
+	_apply_command_bonus()
 	# Marque le modèle comme soldat (choix du modèle 3D dans le panel admin).
 	var mod := get_node_or_null("Model") as VillagerModel
 	if mod != null:
@@ -58,16 +59,44 @@ func _ready() -> void:
 ## Vitesse configurable (panneau admin) — retombe sur MOVE_SPEED.
 func _move_speed() -> float:
 	var gc := get_node_or_null("/root/GameConfig")
+	var base: float = MOVE_SPEED
 	if gc != null:
-		return float(gc.get_value("unite.soldat.vitesse"))
-	return MOVE_SPEED
+		base = float(gc.get_value("unite.soldat.vitesse"))
+	return base * _speed_mult()
 
 ## Dégâts configurable.
 func _atk_damage() -> int:
 	var gc := get_node_or_null("/root/GameConfig")
+	var base: int = ATTACK_DAMAGE
 	if gc != null:
-		return int(gc.get_value("unite.soldat.degats"))
-	return ATTACK_DAMAGE
+		base = int(gc.get_value("unite.soldat.degats"))
+	if command_hero != null and is_instance_valid(command_hero):
+		return int(float(base) * command_hero.call("command_attack_mult"))
+	return base
+
+## Héros commandant cette unité — null = unité libre.
+var command_hero: Node = null
+
+func _speed_mult() -> float:
+	if command_hero != null and is_instance_valid(command_hero):
+		return command_hero.call("command_speed_mult")
+	return 1.0
+
+func _apply_command_bonus() -> void:
+	var base_hp: int = max_hp
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		base_hp = int(gc.get_value("unite.soldat.pv"))
+	var mult: float = 1.0
+	if command_hero != null and is_instance_valid(command_hero):
+		mult = command_hero.call("command_hp_mult")
+	var new_max: int = maxi(int(float(base_hp) * mult), 1)
+	max_hp = new_max
+	hp = mini(hp, new_max)
+
+func notify_command(hero: Node) -> void:
+	command_hero = hero
+	_apply_command_bonus()
 
 ## Portée configurable.
 func _atk_range() -> float:

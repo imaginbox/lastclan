@@ -61,6 +61,9 @@ signal died
 ## qu'il n'y a plus d'attaques). Mis à jour dans take_damage.
 var last_damage_ms: int = -100000
 
+## Héros commandant cette unité (bonus de commandement) — null = unité libre.
+var command_hero: Node = null
+
 var _state: State = State.IDLE
 var _assigned_resource: ResourceNode = null   # ressource qu'il doit exploiter (boucle)
 var _carried_type: ResourceNode.ResourceType = ResourceNode.ResourceType.GOLD
@@ -85,6 +88,9 @@ func _ready() -> void:
 	if gc != null:
 		max_hp = int(gc.get_value("unite.paysan.pv"))
 		hp = max_hp
+	# Bonus de commandement (héros) sur les PV max — appliqué au ready. Comme le
+	# héros peut assigner l'unité plus tard, on re-applique via _apply_command_bonus().
+	_apply_command_bonus()
 	# AnimationPlayer : le modèle (VillagerModel) construit son AnimationPlayer
 	# interne dans son propre _ready (exécuté avant celui-ci). On le récupère
 	# via l'API du modèle pour rester robuste à la structure interne.
@@ -120,9 +126,10 @@ func _ready() -> void:
 ## Vitesse configurable (panneau admin) — retombe sur MOVE_SPEED.
 func _move_speed() -> float:
 	var gc := get_node_or_null("/root/GameConfig")
+	var base: float = MOVE_SPEED
 	if gc != null:
-		return float(gc.get_value("unite.paysan.vitesse"))
-	return MOVE_SPEED
+		base = float(gc.get_value("unite.paysan.vitesse"))
+	return base * _speed_mult()
 
 ## Temps de récolte configurable (panneau admin).
 func _gather_time() -> float:
@@ -141,9 +148,39 @@ func _max_carried() -> int:
 ## Dégâts/multiplicateur d'attaque configurables.
 func _atk_damage() -> int:
 	var gc := get_node_or_null("/root/GameConfig")
+	var base: int = ATTACK_DAMAGE
 	if gc != null:
-		return int(gc.get_value("unite.paysan.degats"))
-	return ATTACK_DAMAGE
+		base = int(gc.get_value("unite.paysan.degats"))
+	# Bonus de commandement (héros) : + damage%.
+	if command_hero != null and is_instance_valid(command_hero):
+		var m: float = command_hero.call("command_attack_mult")
+		return int(float(base) * m)
+	return base
+
+## Multiplicateur de vitesse du paysan (bonus de commandement inclus).
+func _speed_mult() -> float:
+	if command_hero != null and is_instance_valid(command_hero):
+		return command_hero.call("command_speed_mult")
+	return 1.0
+
+## Applique (ou retire) le bonus de commandement sur les PV max quand l'unité est
+## assignée à un héros. Appelé au ready et quand le héros assigne/libère l'unité.
+func _apply_command_bonus() -> void:
+	var base_hp: int = max_hp
+	var gc := get_node_or_null("/root/GameConfig")
+	if gc != null:
+		base_hp = int(gc.get_value("unite.paysan.pv"))
+	var mult: float = 1.0
+	if command_hero != null and is_instance_valid(command_hero):
+		mult = command_hero.call("command_hp_mult")
+	var new_max: int = maxi(int(float(base_hp) * mult), 1)
+	max_hp = new_max
+	hp = mini(hp, new_max)
+
+## Signale au paysan son héros commandant (appelé par le héros). Recalcule le bonus.
+func notify_command(hero: Node) -> void:
+	command_hero = hero
+	_apply_command_bonus()
 
 ## Gravité configurable (panneau admin, jeu.gravite, défaut -20) — positive au sol.
 func _gravity() -> float:

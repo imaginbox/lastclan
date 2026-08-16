@@ -68,6 +68,24 @@ const REGISTRY: Array = [
 	{"key": "unite.soldat.cadence", "kind": Kind.FLOAT, "cat": "Soldat", "sub": "Combat & survie",
 	 "label": "Cadence d'attaque (s)", "def": 1.0, "min": 0.1, "max": 10.0, "step": 0.1},
 
+	# ------------------------------- HÉROS ---------------------------------
+	{"key": "hero.pv", "kind": Kind.INT, "cat": "Héros", "sub": "Caractéristiques",
+	 "label": "Points de vie du héros", "def": 150, "min": 1, "max": 5000},
+	{"key": "hero.degats", "kind": Kind.INT, "cat": "Héros", "sub": "Caractéristiques",
+	 "label": "Dégâts d'attaque du héros", "def": 8, "min": 0, "max": 600},
+	{"key": "hero.vitesse", "kind": Kind.FLOAT, "cat": "Héros", "sub": "Caractéristiques",
+	 "label": "Vitesse du héros", "def": 4.2, "min": 0.5, "max": 25.0, "step": 0.1},
+	{"key": "hero.capacite_base", "kind": Kind.INT, "cat": "Héros", "sub": "Troupe",
+	 "label": "Capacité de troupe de base (niv. 1)", "def": 10, "min": 1, "max": 100},
+	{"key": "hero.bonus_par_niveau", "kind": Kind.FLOAT, "cat": "Héros", "sub": "Commandement",
+	 "label": "Bonus de commandement par niveau (x)", "def": 0.10, "min": 0.0, "max": 1.0, "step": 0.01},
+	{"key": "hero.bonus_hdv", "kind": Kind.FLOAT, "cat": "Héros", "sub": "Commandement",
+	 "label": "Bonus de commandement par niveau HDV (x)", "def": 0.04, "min": 0.0, "max": 0.5, "step": 0.01},
+	{"key": "hero.convert_or", "kind": Kind.INT, "cat": "Héros", "sub": "Conversion",
+	 "label": "Coût en or pour convertir un paysan en soldat", "def": 30, "min": 0, "max": 10000},
+	{"key": "hero.convert_bois", "kind": Kind.INT, "cat": "Héros", "sub": "Conversion",
+	 "label": "Coût en bois pour convertir un paysan en soldat", "def": 10, "min": 0, "max": 10000},
+
 	# --------------------------- COÛTS BÂTIMENTS ---------------------------
 	{"key": "batiment.hdv.cout_or", "kind": Kind.INT, "cat": "Bâtiments", "sub": "HDV — Coûts",
 	 "label": "HDV — coût or", "def": 0, "min": 0, "max": 100000},
@@ -274,6 +292,7 @@ const CATEGORY_DESC: Dictionary = {
 	"Paysan": "Caractéristiques des paysans : déplacement, survie, dégâts, "
 		+ "vitesse de collecte et quantité transportée.",
 	"Soldat": "Caractéristiques des soldats entraînés à la caserne.",
+	"Héros": "Votre commandant : il regroupe une troupe (paysans/soldats) et la rend plus puissante grâce au bonus de commandement. Gagne de l'XP en combattant et débloque une plus grande troupe à chaque niveau.",
 	"Bâtiments": "Coûts de construction, d'amélioration, de dimension, de niveaux "
 		+ "et de vie de chaque bâtiment, plus le logement des maisons et les dégâts des tours.",
 	"Recrutement": "Coûts et durée pour recruter des paysans / entraîner des soldats.",
@@ -301,6 +320,14 @@ const PARAM_DESC: Dictionary = {
 	"unite.soldat.degats": "Dégâts infligés par attaque du soldat.",
 	"unite.soldat.portee": "Distance d'attaque du soldat (cases).",
 	"unite.soldat.cadence": "Délai entre deux attaques du soldat (s).",
+	"hero.pv": "Points de vie maximum du héros.",
+	"hero.degats": "Dégâts infligés par attaque du héros.",
+	"hero.vitesse": "Vitesse de déplacement du héros.",
+	"hero.capacite_base": "Nombre d'unités qu'un héros de niveau 1 peut commander (la capacité augmente avec son niveau et celui de l'HDV).",
+	"hero.bonus_par_niveau": "Bonus de commandement appliqué aux unités assignées, par niveau du héros (ex. 0.10 = +10%).",
+	"hero.bonus_hdv": "Bonus de commandement supplémentaire par niveau de l'Hôtel de Ville (progression globale).",
+	"hero.convert_or": "Coût en or pour convertir un paysan en soldat (population conservée).",
+	"hero.convert_bois": "Coût en bois pour convertir un paysan en soldat (population conservée).",
 	"batiment.hdv.cout_or": "Coût en or pour construire l'hôtel de ville.",
 	"batiment.hdv.ameli_or": "Coût en or pour améliorer l'hôtel de ville.",
 	"batiment.hdv.ameli_bois": "Coût en bois pour améliorer l'hôtel de ville.",

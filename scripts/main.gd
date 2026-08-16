@@ -13,6 +13,7 @@ extends Node3D
 const VILLAGER_SCENE := preload("res://scenes/Villager.tscn")
 const RESOURCE_SCENE := preload("res://scenes/ResourceNode.tscn")
 const SOLDIER_SCENE := preload("res://scenes/Soldier.tscn")
+const HERO_SCENE := preload("res://scenes/Hero.tscn")
 const DecorScript := preload("res://scripts/Decor.gd")
 const FLOAT_TEXT_SCENE := preload("res://scripts/FloatingText.gd")
 
@@ -79,6 +80,13 @@ var _order_hint: Label = null
 var _order_armed := false
 ## Panneau des états du personnage sélectionné (côté droit).
 var _unit_panel: PanelContainer = null
+## Panneau « Troupe » du héros : assignation paysans/soldats + conversion.
+var _troop_panel: PanelContainer = null
+var _troop_hero: Node = null
+var _troop_title: Label = null
+var _troop_info: Label = null
+var _troop_worker_label: Label = null
+var _troop_soldier_label: Label = null
 var _unit_role_lbl: Label = null
 var _unit_hp_lbl: Label = null
 var _unit_state_lbl: Label = null
@@ -96,6 +104,7 @@ var _hud_food_label: Label = null
 var _hud_pop_label: Label = null
 var _hud_workers_label: Label = null
 var _hud_soldiers_label: Label = null
+var _hud_hero_label: Label = null
 var _hud_room_label: Label = null
 var _hud_hover_label: Label = null
 var _hud_realm_label: Label = null
@@ -767,6 +776,7 @@ func _add_local_unit_visuals(unit: Node3D) -> void:
 	unit.add_child(_make_health_bar_node())
 
 func _spawn_villagers() -> void:
+	_spawn_hero()
 	var v: Node3D = VILLAGER_SCENE.instantiate()
 	villager_root.add_child(v)
 	v.global_position = _base_origin + Vector3(-2.0, 0.0, 0.0)
@@ -778,6 +788,14 @@ func _spawn_villagers() -> void:
 	_add_default_task(v)
 	_add_default_task(v2)
 	_refresh_unit_counts()
+
+## Crée le héros commandant au centre du village (gratuit, dès le départ).
+func _spawn_hero() -> void:
+	var h: Node3D = HERO_SCENE.instantiate()
+	villager_root.add_child(h)
+	h.global_position = _base_origin + Vector3(0.0, 0.0, -1.0)
+	h.add_to_group("hero")
+	_add_local_unit_visuals(h)
 
 func _add_default_task(villager: Node3D) -> void:
 	var rn := _nearest_resource_node(villager.global_position)
@@ -1626,6 +1644,7 @@ func _select_box(from: Vector2, to: Vector2) -> void:
 	_update_selection_feedback()
 
 func _deselect_all() -> void:
+	_clear_troop_markers()
 	for u in _selected_units:
 		if is_instance_valid(u):
 			u.call("set_selected", false)
@@ -1641,8 +1660,24 @@ func _update_selection_feedback() -> void:
 	for u in _selected_units:
 		if is_instance_valid(u):
 			u.call("set_selected", true)
+	# Sélection d'un héros : on affiche aussi un repère sur chaque membre de sa
+	# troupe (état visuel « dirigé »), sans les ajouter à la sélection unitaire.
+	_show_troop_markers()
 	_refresh_order_button()
 	_refresh_inspector()
+
+## Affiche/masque les repères de troupe sous les membres de chaque héros sélectionné.
+func _show_troop_markers() -> void:
+	_clear_troop_markers()
+	for u in _selected_units:
+		if u is Hero:
+			if u.has_method("troop_size") and u.troop_size() > 0:
+				u.call("_show_troop_selected", true)
+
+func _clear_troop_markers() -> void:
+	for h in get_tree().get_nodes_in_group("hero"):
+		if is_instance_valid(h) and h.has_method("_show_troop_selected"):
+			h.call("_show_troop_selected", false)
 
 func _select_building(b: Building) -> void:
 	# On ne PEUT PAS sélectionner/manipuler les bâtiments des autres joueurs :
@@ -1813,7 +1848,7 @@ func _raycast(screen_pos: Vector2) -> Dictionary:
 func _unit_at(node: Node) -> Node:
 	var cur: Node = node
 	while cur != null:
-		if cur is Villager or cur is Soldier:
+		if cur is Hero or cur is Villager or cur is Soldier:
 			return cur
 		cur = cur.get_parent()
 	return null
@@ -2176,8 +2211,11 @@ func _on_my_clan_changed() -> void:
 func _refresh_unit_counts() -> void:
 	var workers := 0
 	var soldiers := 0
+	var heroes := 0
 	for child in villager_root.get_children():
-		if child is Villager:
+		if child is Hero:
+			heroes += 1
+		elif child is Villager:
 			workers += 1
 		elif child is Soldier:
 			soldiers += 1
@@ -2185,6 +2223,8 @@ func _refresh_unit_counts() -> void:
 		_hud_workers_label.text = "Travailleurs : %d" % workers
 	if _hud_soldiers_label != null:
 		_hud_soldiers_label.text = "Soldats : %d" % soldiers
+	if _hud_hero_label != null:
+		_hud_hero_label.text = "Héros : %d" % heroes
 
 func _notify(text: String) -> void:
 	print(text)
@@ -2291,8 +2331,14 @@ func _refresh_inspector() -> void:
 		return
 	if _selected_units.size() != 1 or not is_instance_valid(_selected_units[0]):
 		_unit_panel.visible = false
+		_hide_troop_panel()
 		return
 	var u: Node = _selected_units[0]
+	if u is Hero:
+		_unit_panel.visible = false
+		_show_troop_panel(u)
+		return
+	_hide_troop_panel()
 	var role := ""
 	var hp_str := ""
 	var state_str := ""
@@ -2320,6 +2366,172 @@ func _refresh_inspector() -> void:
 	_unit_hp_lbl.text = hp_str
 	_unit_state_lbl.text = state_str
 	_unit_panel.visible = true
+
+# ============================================================ PANEL TROUPE (HÉROS)
+
+## Affiche le panneau de gestion de la troupe pour le héros sélectionné.
+func _show_troop_panel(hero: Node) -> void:
+	_troop_hero = hero
+	if _troop_panel != null:
+		_troop_panel.visible = true
+	_refresh_troop_panel()
+
+## Masque le panneau de gestion de troupe.
+func _hide_troop_panel() -> void:
+	_troop_hero = null
+	if _troop_panel != null:
+		_troop_panel.visible = false
+
+## Rafraîchit le contenu du panneau Troupe (titres, compteurs, capacités).
+func _refresh_troop_panel() -> void:
+	if _troop_hero == null or not is_instance_valid(_troop_hero):
+		return
+	var h: Node = _troop_hero
+	var cap: int = h.call("troop_capacity")
+	var workers: int = h.call("troop_count", Hero.UnitKind.VILLAGER)
+	var soldiers: int = h.call("troop_count", Hero.UnitKind.SOLDIER)
+	var size: int = h.call("troop_size")
+	_troop_title.text = "Héros (niv. %d) — %d/%d troupes" % [h.level, size, cap]
+	# Bonus de commandement (dégâts de la troupe).
+	var dmg: float = h.call("command_attack_mult")
+	_troop_info.text = "Bonus troupe : +%d%% dégâts · +%d%% vie\nArmez 'Déplacer/Attaquer' sur la carte pour bouger troupe + héros." % [int((dmg - 1.0) * 100.0), int((h.call("command_hp_mult") - 1.0) * 100.0)]
+	# Unités libres disponibles dans le village (non assignées à ce héros).
+	var free_workers := _count_free_units(Hero.UnitKind.VILLAGER, h)
+	var free_soldiers := _count_free_units(Hero.UnitKind.SOLDIER, h)
+	_troop_worker_label.text = "Paysans : %d  (dispo %d)" % [workers, free_workers]
+	_troop_soldier_label.text = "Soldats : %d  (dispo %d)" % [soldiers, free_soldiers]
+
+## Compte les unités du type donné non encore assignées à [hero].
+func _count_free_units(kind: int, hero: Node) -> int:
+	var n := 0
+	for child in villager_root.get_children():
+		if kind == Hero.UnitKind.VILLAGER and child is Villager:
+			if not (hero.has_method("troop_has") and hero.call("troop_has", child)):
+				n += 1
+		elif kind == Hero.UnitKind.SOLDIER and child is Soldier:
+			if not (hero.has_method("troop_has") and hero.call("troop_has", child)):
+				n += 1
+	return n
+
+func _on_troop_worker_inc() -> void:
+	if _troop_hero == null:
+		return
+	var h: Node = _troop_hero
+	if not h.call("has_space"):
+		_notify("Troupe pleine (capacité %d)." % h.call("troop_capacity"))
+		return
+	# Prend une unité paysanne libre.
+	var target := _find_free_unit(Hero.UnitKind.VILLAGER, h)
+	if target == null:
+		_notify("Aucun paysan libre disponible.")
+		return
+	h.call("assign_unit", target)
+	_refresh_troop_panel()
+	_notify("Paysan ajouté à la troupe.")
+
+func _on_troop_worker_dec() -> void:
+	if _troop_hero == null:
+		return
+	var h: Node = _troop_hero
+	var u: Node = _last_troop_unit(h, Hero.UnitKind.VILLAGER)
+	if u == null:
+		_notify("Aucun paysan dans la troupe.")
+		return
+	h.call("unassign_unit", u)
+	_refresh_troop_panel()
+
+func _on_troop_soldier_inc() -> void:
+	if _troop_hero == null:
+		return
+	var h: Node = _troop_hero
+	if not h.call("has_space"):
+		_notify("Troupe pleine (capacité %d)." % h.call("troop_capacity"))
+		return
+	var target := _find_free_unit(Hero.UnitKind.SOLDIER, h)
+	if target == null:
+		_notify("Aucun soldat libre disponible.")
+		return
+	h.call("assign_unit", target)
+	_refresh_troop_panel()
+
+func _on_troop_soldier_dec() -> void:
+	if _troop_hero == null:
+		return
+	var h: Node = _troop_hero
+	var u: Node = _last_troop_unit(h, Hero.UnitKind.SOLDIER)
+	if u == null:
+		_notify("Aucun soldat dans la troupe.")
+		return
+	h.call("unassign_unit", u)
+	_refresh_troop_panel()
+
+## Trouve une unité libre du type donné pour l'assigner au héros.
+## Si [hero] est null, toute unité du type compte comme libre.
+func _find_free_unit(kind: int, hero: Node) -> Node:
+	for child in villager_root.get_children():
+		var is_free: bool = true
+		if hero != null and is_instance_valid(hero) and hero.has_method("troop_has"):
+			is_free = not hero.call("troop_has", child)
+		if is_free:
+			if kind == Hero.UnitKind.VILLAGER and child is Villager:
+				return child
+			elif kind == Hero.UnitKind.SOLDIER and child is Soldier:
+				return child
+	return null
+
+## Renvoie la dernière unité du type dans la troupe (pour la désassigner en 1er).
+func _last_troop_unit(hero: Node, kind: int) -> Node:
+	if hero == null or not is_instance_valid(hero) or not hero.has_method("_troop"):
+		return null
+	var arr: Array = hero.get("_troop")
+	for i in range(arr.size() - 1, -1, -1):
+		var u: Node = arr[i]
+		if kind == Hero.UnitKind.VILLAGER and u is Villager:
+			return u
+		elif kind == Hero.UnitKind.SOLDIER and u is Soldier:
+			return u
+	return null
+
+## Convertit un paysan (dans la troupe, sinon libre) en soldat, moyennant un
+## coût en or + bois. La population est CONSERVÉE (même logement).
+func _on_convert_pressed() -> void:
+	var gc := get_node_or_null("/root/GameConfig")
+	var gold_cost: int = 30
+	var wood_cost: int = 10
+	if gc != null:
+		var g = gc.get_value("hero.convert_or")
+		if g != null:
+			gold_cost = int(g)
+		var w = gc.get_value("hero.convert_bois")
+		if w != null:
+			wood_cost = int(w)
+	var rm := get_node("/root/ResourceManager")
+	# Choisit un paysan à convertir : d'abord en troupe, sinon un libre.
+	var target: Node = null
+	if _troop_hero != null and is_instance_valid(_troop_hero):
+		target = _last_troop_unit(_troop_hero, Hero.UnitKind.VILLAGER)
+	if target == null:
+		target = _find_free_unit(Hero.UnitKind.VILLAGER, _troop_hero)
+	if target == null:
+		_notify("Aucun paysan à convertir.")
+		return
+	if not rm.spend(gold_cost, wood_cost):
+		_notify("Ressources insuffisantes (or %d, bois %d)." % [gold_cost, wood_cost])
+		return
+	# Transformer le paysan en soldat : réutilise la scène soldat.
+	var pos: Vector3 = target.global_position
+	var soldier: Node3D = SOLDIER_SCENE.instantiate()
+	villager_root.add_child(soldier)
+	soldier.global_position = pos
+	_add_local_unit_visuals(soldier)
+	# Retire le paysan de la troupe et du monde.
+	if _troop_hero != null and is_instance_valid(_troop_hero):
+		if _troop_hero.call("troop_has", target):
+			_troop_hero.call("unassign_unit", target)
+	target.queue_free()
+	_refresh_troop_panel()
+	_refresh_unit_counts()
+	_notify("Paysan converti en soldat !")
 
 # ============================================================ PANEL CLAN
 
@@ -2684,8 +2896,100 @@ func _setup_order_button() -> void:
 	_unit_state_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	uv.add_child(_unit_state_lbl)
 	layer.add_child(_unit_panel)
+	_build_troop_panel(layer)
 
-## Annule la sélection en cours (les unités retournent à leur tâche auto).
+## Panneau « Troupe » du héros : affiché quand on sélectionne un héros. Permet
+## d'assigner/désassigner des paysans et soldats (steppers) et de convertir un
+## paysan en soldat. Culminant à droite, sous le panneau d'état — optimisé mobile.
+func _build_troop_panel(layer: CanvasLayer) -> void:
+	_troop_panel = PanelContainer.new()
+	_troop_panel.name = "TroopPanel"
+	_troop_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_troop_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_troop_panel.offset_left = -280.0 * _ui_scale
+	_troop_panel.offset_top = 190.0 * _ui_scale
+	_troop_panel.offset_right = -12.0 * _ui_scale
+	_troop_panel.offset_bottom = 480.0 * _ui_scale
+	_troop_panel.visible = false
+	var tb := StyleBoxFlat.new()
+	tb.bg_color = Color(0.09, 0.06, 0.04, 0.9)
+	tb.corner_radius_top_left = 12
+	tb.corner_radius_top_right = 12
+	tb.corner_radius_bottom_left = 12
+	tb.corner_radius_bottom_right = 12
+	tb.border_color = Color(1.0, 0.82, 0.3, 0.6)
+	tb.set_border_width_all(2)
+	tb.content_margin_left = 14
+	tb.content_margin_right = 14
+	tb.content_margin_top = 12
+	tb.content_margin_bottom = 12
+	_troop_panel.add_theme_stylebox_override("panel", tb)
+	var tv := VBoxContainer.new()
+	tv.add_theme_constant_override("separation", int(7 * _ui_scale))
+	_troop_panel.add_child(tv)
+	_troop_title = Label.new()
+	_troop_title.add_theme_font_size_override("font_size", int(17 * _ui_scale))
+	_troop_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	_troop_title.add_theme_constant_override("outline_size", 6)
+	_troop_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	tv.add_child(_troop_title)
+	_troop_info = Label.new()
+	_troop_info.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_troop_info.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
+	_troop_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tv.add_child(_troop_info)
+	# Ligne paysan : libellé + stepper.
+	var wrow := HBoxContainer.new()
+	wrow.add_theme_constant_override("separation", int(6 * _ui_scale))
+	_troop_worker_label = Label.new()
+	_troop_worker_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_troop_worker_label.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+	_troop_worker_label.add_theme_color_override("font_color", Color(0.75, 0.95, 0.7))
+	wrow.add_child(_troop_worker_label)
+	var wminus := Button.new()
+	wminus.text = "−"
+	wminus.custom_minimum_size = Vector2(34 * _ui_scale, 34 * _ui_scale)
+	_stylize_coc_button(wminus)
+	wminus.pressed.connect(_on_troop_worker_dec)
+	wrow.add_child(wminus)
+	var wplus := Button.new()
+	wplus.text = "+"
+	wplus.custom_minimum_size = Vector2(34 * _ui_scale, 34 * _ui_scale)
+	_stylize_coc_button(wplus)
+	wplus.pressed.connect(_on_troop_worker_inc)
+	wrow.add_child(wplus)
+	tv.add_child(wrow)
+	# Ligne soldat : libellé + stepper.
+	var srow := HBoxContainer.new()
+	srow.add_theme_constant_override("separation", int(6 * _ui_scale))
+	_troop_soldier_label = Label.new()
+	_troop_soldier_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_troop_soldier_label.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+	_troop_soldier_label.add_theme_color_override("font_color", Color(1.0, 0.7, 0.6))
+	srow.add_child(_troop_soldier_label)
+	var sminus := Button.new()
+	sminus.text = "−"
+	sminus.custom_minimum_size = Vector2(34 * _ui_scale, 34 * _ui_scale)
+	_stylize_coc_button(sminus)
+	sminus.pressed.connect(_on_troop_soldier_dec)
+	srow.add_child(sminus)
+	var splus := Button.new()
+	splus.text = "+"
+	splus.custom_minimum_size = Vector2(34 * _ui_scale, 34 * _ui_scale)
+	_stylize_coc_button(splus)
+	splus.pressed.connect(_on_troop_soldier_inc)
+	srow.add_child(splus)
+	tv.add_child(srow)
+	# Bouton conversion paysan -> soldat.
+	var conv := Button.new()
+	conv.text = "⚔ Convertir un paysan en soldat"
+	conv.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	conv.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+	_stylize_coc_button(conv)
+	conv.pressed.connect(_on_convert_pressed)
+	tv.add_child(conv)
+	layer.add_child(_troop_panel)
+
 func _cancel_selection() -> void:
 	_deselect_all()
 	_notify("Sélection annulée.")

@@ -1,0 +1,22 @@
+[gd_scene load_steps=5 format=3 uid="uid://hero_scene"]
+
+[ext_resource type="Script" path="res://scripts/Hero.gd" id="1_hero"]
+[ext_resource type="Script" path="res://scripts/VillagerModel.gd" id="2_model"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_1"]
+radius = 0.45
+height = 1.9
+
+[node name="Hero" type="CharacterBody3D"]
+script = ExtResource("1_hero")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0)
+shape = SubResource("CapsuleShape_1")
+
+[node name="Model" type="Node3D" parent="."]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
+script = ExtResource("2_model")
+tint = Color(1.0, 0.82, 0.15, 1)
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
