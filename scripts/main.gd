@@ -1855,10 +1855,10 @@ func _update_hover(screen_pos: Vector2) -> void:
 		if unit != null:
 			name_text = _owner_name(unit)
 		else:
-			# Unité distante ou bâtiment : l'owner est stocké en meta / propriété.
-			var owner := _owner_of(node)
-			if owner != -1:
-				name_text = _owner_name_id(owner)
+			# Unité distante ou bâtiment : le propriétaire est stocké en meta / propriété.
+			var owner_peer_id := _owner_of(node)
+			if owner_peer_id != -1:
+				name_text = _owner_name_id(owner_peer_id)
 	if name_text.is_empty():
 		_hud_hover_label.visible = false
 	else:
@@ -1866,7 +1866,7 @@ func _update_hover(screen_pos: Vector2) -> void:
 		_hud_hover_label.visible = true
 
 ## Nom du joueur propriétaire d'UNE UNITÉ LOCALE (Villager/Soldier) : nous.
-func _owner_name(obj: Node) -> String:
+func _owner_name(_obj: Node) -> String:
 	return _owner_name_id(Lobby.my_id)
 
 ## Remonte la hiérarchie pour trouver le peer propriétaire (RemoteUnit.owner_peer
@@ -2262,14 +2262,16 @@ func _push_toast(text: String, color: Color = Color(0.85, 0.66, 0.3)) -> void:
 		return
 	var tw := create_tween()
 	tw.tween_interval(2.2)
-	tw.tween_method(_toast_fade.bind(card), 1.0, 0.0, 0.35)
+	# Le toast peut être libéré (queue_free par un toast plus récent) avant la fin
+	# du tween : on vérifie la validité à chaque pas pour éviter l'erreur
+	# "Cannot convert argument 2 from Object to Object" sur un objet libéré.
+	tw.tween_method(
+		func(alpha: float) -> void:
+			if card == null or not is_instance_valid(card):
+				return
+			card.modulate.a = alpha,
+		1.0, 0.0, 0.35)
 	tw.tween_callback(card.queue_free)
-
-## Fondu d'un toast (callback tween).
-func _toast_fade(alpha: float, card: PanelContainer) -> void:
-	if card == null or not is_instance_valid(card):
-		return
-	card.modulate.a = alpha
 
 ## Affiche les messages de chat des autres joueurs comme des toasts en jeu.
 func _connect_chat_toasts() -> void:

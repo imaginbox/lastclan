@@ -185,6 +185,10 @@ func _sprite_folder() -> String:
 	return ""
 
 func _apply_cfg_overrides(cfg: Dictionary) -> void:
+	# get_node_or_null sur un chemin absolu échoue (et spamme une erreur) si ce
+	# bâtiment n'est pas encore dans l'arbre de scène -> on sort proprement.
+	if not is_inside_tree():
+		return
 	var gc := get_node_or_null("/root/GameConfig")
 	if gc == null:
 		return
@@ -470,7 +474,10 @@ func _building_texture() -> Texture2D:
 		return null
 	# Image HDV personnalisée du panel admin (Apparence) si fournie.
 	if type == Type.TOWN_HALL:
-		var gc := get_node_or_null("/root/GameConfig")
+		# get_node_or_null absolu spamme une erreur hors arbre -> on sort vite.
+		var gc: Variant = null
+		if is_inside_tree():
+			gc = get_node_or_null("/root/GameConfig")
 		if gc != null and gc.get_value("apparence.hdv.image") != null:
 			var img := str(gc.get_value("apparence.hdv.image"))
 			if img != "":
