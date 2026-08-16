@@ -255,6 +255,10 @@ func _move_troop_to_formation() -> void:
 		var u: Node = _troop[i]
 		if not is_instance_valid(u):
 			continue
+		# Ne pas re-casser un ordre de récolte en cours : un récolteur ne rejoint
+		# pas la formation (il reviendra après). Sinon la récolte est annulée.
+		if _is_member_busy(u):
+			continue
 		var off: Vector3 = _formation_spots[i] if i < _formation_spots.size() else Vector3.ZERO
 		var spot: Vector3 = global_position + off
 		if u.has_method("move_to_point"):

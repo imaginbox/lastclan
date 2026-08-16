@@ -1523,8 +1523,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				# (sol, ressource ou ennemi), comme sur tactile.
 				if _order_armed:
 					var m: int = _order_mode
-					# Héros : le mode RESTE armé pour enchaîner les ordres (CoD/RoK).
-					if not _is_hero_selected():
+					# Le mode RESTE armé tant qu'il reste des unités sélectionnées :
+					# on peut enchaîner les ordres (Déplacer/Récolter/Attaquer) sans
+					# re-cliquer sur le bouton de mode (souris + tactile).
+					if _selected_units.is_empty():
 						_order_armed = false
 						_order_mode = OrderMode.NONE
 						if _order_hint != null:
@@ -1570,8 +1572,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _tap_allowed:
 				if _order_armed:
 					var m: int = _order_mode
-					# Héros : le mode RESTE armé pour enchaîner les ordres (CoD/RoK).
-					if not _is_hero_selected():
+					# Le mode RESTE armé tant qu'il reste des unités sélectionnées :
+					# on peut enchaîner les ordres (Déplacer/Récolter/Attaquer) sans
+					# re-cliquer sur le bouton de mode (souris + tactile).
+					if _selected_units.is_empty():
 						_order_armed = false
 						_order_mode = OrderMode.NONE
 						if _order_hint != null:
@@ -2328,19 +2332,11 @@ func _push_toast(text: String, color: Color = Color(0.85, 0.66, 0.3)) -> void:
 		return
 	var tw := create_tween()
 	tw.tween_interval(2.2)
-	# Le toast peut être libéré (queue_free par un toast plus récent) avant la fin
-	# du tween. On utilise une MÉTHODE nommée + bind (pas de lambda) pour éviter
-	# l'erreur "Lambda capture at index 0 was freed" : bind maintient une référence
-	# forte, et la méthode vérifie la validité à chaque pas.
-	tw.tween_method(_toast_fade_step.bind(card), 1.0, 0.0, 0.35)
+	# tween_property modifie directement modulate:a : pas de callable avec objet
+	# lié, donc aucune erreur de type/conversion (et aucun capture freed) même si
+	# le toast est libéré en cours de route (le tween s'auto-stoppe alors).
+	tw.tween_property(card, "modulate:a", 0.0, 0.35)
 	tw.tween_callback(card.queue_free)
-
-## Pas d'un fade de toast : ne fait rien si le toast a été libéré entre-temps.
-## (l'ordre des args est (valeur_anim, card) car bind() ajoute card en dernier)
-func _toast_fade_step(alpha: float, card: Control) -> void:
-	if card == null or not is_instance_valid(card):
-		return
-	card.modulate.a = alpha
 
 ## Affiche les messages de chat des autres joueurs comme des toasts en jeu.
 func _connect_chat_toasts() -> void:
