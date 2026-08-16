@@ -273,7 +273,8 @@ func gather_troop(resource: ResourceNode) -> void:
 ## Vrai si ce membre de la troupe est actuellement occupé à récolter (à ne pas
 ## rappeler vers la formation pendant qu'il travaille).
 func _is_member_busy(u: Node) -> bool:
-	if u is Villager and u.has_method("_state"):
+	# _state est une VARIABLE (pas une méthode) : on y accède via get().
+	if u is Villager and u.get("_state") != null:
 		var st: int = int(u.get("_state"))
 		if st == 1 or st == 2 or st == 3:  # GOING_TO_RESOURCE, GATHERING, RETURNING
 			return true

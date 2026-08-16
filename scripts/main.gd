@@ -2322,15 +2322,17 @@ func _push_toast(text: String, color: Color = Color(0.85, 0.66, 0.3)) -> void:
 	var tw := create_tween()
 	tw.tween_interval(2.2)
 	# Le toast peut être libéré (queue_free par un toast plus récent) avant la fin
-	# du tween : on vérifie la validité à chaque pas pour éviter l'erreur
-	# "Cannot convert argument 2 from Object to Object" sur un objet libéré.
-	tw.tween_method(
-		func(alpha: float) -> void:
-			if card == null or not is_instance_valid(card):
-				return
-			card.modulate.a = alpha,
-		1.0, 0.0, 0.35)
+	# du tween. On utilise une MÉTHODE nommée + bind (pas de lambda) pour éviter
+	# l'erreur "Lambda capture at index 0 was freed" : bind maintient une référence
+	# forte, et la méthode vérifie la validité à chaque pas.
+	tw.tween_method(_toast_fade_step.bind(card), 1.0, 0.0, 0.35)
 	tw.tween_callback(card.queue_free)
+
+## Pas d'un fade de toast : ne fait rien si le toast a été libéré entre-temps.
+func _toast_fade_step(card: Control, alpha: float) -> void:
+	if card == null or not is_instance_valid(card):
+		return
+	card.modulate.a = alpha
 
 ## Affiche les messages de chat des autres joueurs comme des toasts en jeu.
 func _connect_chat_toasts() -> void:

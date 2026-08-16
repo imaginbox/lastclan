@@ -90,3 +90,20 @@ func test_last_troop_unit_finds_villager() -> void:
 	if found_id == -1:
 		push_error("CHECK FAILED: _last_troop_unit n'a trouvé aucun paysan (bug has_method)")
 	v.queue_free()
+
+## _is_member_busy doit considérer un paysan en récolte comme 'occupé' (sinon le
+## héros le rappelle vers la formation et annule sa récolte). Ce test verrouille
+## le bug où _state (variable) était testée via has_method() -> toujours false.
+func test_is_member_busy_detects_gathering() -> void:
+	var h := _make_hero()
+	var v: Node = load("res://scripts/Villager.gd").new()
+	add_child(v)
+	# Simule un paysan en train de récolter.
+	v.set("_state", 2)  # GATHERING
+	if not h.call("_is_member_busy", v):
+		push_error("CHECK FAILED: paysan en GATHERING non détecté occupé (bug has_method)")
+	# Un paysan idle ne doit PAS être considéré occupé.
+	v.set("_state", 0)  # IDLE
+	if h.call("_is_member_busy", v):
+		push_error("CHECK FAILED: paysan IDLE considéré occupé à tort")
+	v.queue_free()
