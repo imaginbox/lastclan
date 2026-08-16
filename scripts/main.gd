@@ -18,6 +18,9 @@ const FLOAT_TEXT_SCENE := preload("res://scripts/FloatingText.gd")
 
 const CELL := 1.0
 const GRID_HALF := 190.0
+## Marge minimale (mètres) à respecter entre un décor / une ressource et tout
+## bâtiment : on ne fait jamais pousser d'herbe ou d'arbre collé aux constructions.
+const DECOR_MARGIN := 5.0
 const DRAG_SELECT_THRESHOLD := 8.0
 
 @onready var nav_region: NavigationRegion3D = $NavigationRegion3D
@@ -251,6 +254,10 @@ func _spawn_world() -> void:
 		_spawn_initial_buildings()
 		_spawn_villagers()
 	_spawn_decor()
+	# Les ressources initiales ont été posées AVANT les bâtiments (la garde
+	# _near_building ne voyait pas encore les constructions) : on les écarte à
+	# nouveau des bâtiments une fois ceux-ci en place.
+	_separate_resources_from_buildings()
 	# Les boutons dépendent du niveau de l'hôtel de ville, créé ci-dessus.
 	_refresh_build_buttons()
 	# Pose la caméra sur la base du joueur (pas de caméra interactive en serveur).
@@ -619,7 +626,7 @@ func _random_decor_pos() -> Vector3:
 		if pos.distance_to(Vector3.ZERO) < 4.0:
 			continue
 		var cell := _cell_from_pos(pos)
-		if not _occupancy.has(cell):
+		if not _occupancy.has(cell) and not _near_building(pos, DECOR_MARGIN):
 			return pos
 	return Vector3.INF
 
@@ -635,7 +642,7 @@ func _random_decor_pos_tree() -> Vector3:
 		if pos.distance_to(Vector3.ZERO) < 8.0:
 			continue
 		var cell := _cell_from_pos(pos)
-		if not _occupancy.has(cell):
+		if not _occupancy.has(cell) and not _near_building(pos, DECOR_MARGIN):
 			return pos
 	return Vector3.INF
 
@@ -724,6 +731,25 @@ func _near_building(pos: Vector3, min_dist: float) -> bool:
 		if pos.distance_to(b.global_position) < min_dist:
 			return true
 	return false
+
+## Écarte les ressources récoltables trop proches des bâtiments. Appelé APRÈS la
+## construction initiale des bâtiments (les ressources initiales sont posées avant,
+## quand la garde _near_building ne voyait pas encore les constructions).
+func _separate_resources_from_buildings() -> void:
+	for node in resource_root.get_children():
+		var r := node as Node3D
+		if r == null:
+			continue
+		# Essaie de décaler la ressource jusqu'à ce qu'elle soit à DECOR_MARGIN
+		# de tout bâtiment ; sinon la laisse en place (pas d'infini).
+		for attempt in 12:
+			if not _near_building(r.global_position, DECOR_MARGIN):
+				break
+			r.global_position = Vector3(
+				clampf(r.global_position.x + _world_rng.randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF),
+				0.0,
+				clampf(r.global_position.z + _world_rng.randf_range(-4.0, 4.0), -GRID_HALF, GRID_HALF)
+			)
 
 func _spawn_initial_buildings() -> void:
 	# Hôtel de ville au centre de la base (décalé de la position de base).
@@ -1340,6 +1366,42 @@ func _refresh_population_cap() -> void:
 
 # ============================================================ FANTÔME / PLACEMENT
 
+## Nœud visuel d'un bâtiment (Sprite3D si imagé, sinon MeshInstance3D), ou null.
+func _ghost_visual(b: Building) -> Node:
+	var s := b.get_node_or_null("Sprite")
+	if s != null:
+		return s
+	return b.get_node_or_null("Mesh")
+
+## Rend le fantôme semi-transparent (Sprite ou Mesh selon le bâtiment).
+func _make_ghost_transparent(b: Building) -> void:
+	var vis := _ghost_visual(b)
+	if vis is Sprite3D:
+		var spr := vis as Sprite3D
+		spr.modulate = Color(1, 1, 1, 0.5)
+	elif vis is MeshInstance3D:
+		var m := vis as MeshInstance3D
+		var mat: StandardMaterial3D = m.material_override as StandardMaterial3D
+		if mat == null:
+			mat = StandardMaterial3D.new()
+			m.material_override = mat
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color.a = 0.5
+
+## Teinte le fantôme selon la validité (vert = OK, rouge = occupied).
+func _tint_ghost(b: Building, valid: bool) -> void:
+	var vis := _ghost_visual(b)
+	var col := Color(0.3, 1.0, 0.35, 0.5) if valid else Color(1.0, 0.3, 0.3, 0.5)
+	if vis is Sprite3D:
+		(vis as Sprite3D).modulate = col
+	elif vis is MeshInstance3D:
+		var m := vis as MeshInstance3D
+		var mat: StandardMaterial3D = m.material_override as StandardMaterial3D
+		if mat == null:
+			mat = StandardMaterial3D.new()
+			m.material_override = mat
+		mat.albedo_color = col
+
 ## Crée/met à jour le fantôme de placement pour le type en cours.
 func _update_ghost(mouse_pos: Vector2) -> void:
 	if _pending_type < 0 and _moving_building == null:
@@ -1350,10 +1412,9 @@ func _update_ghost(mouse_pos: Vector2) -> void:
 		_ghost.type = t
 		building_root.add_child(_ghost)
 		_ghost.get_node("CollisionShape3D").set_deferred("disabled", true)
-		# Transparence pour le fantôme.
-		var mat := _ghost.get_node("Mesh").material_override as StandardMaterial3D
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.albedo_color.a = 0.5
+		# Transparence pour le fantôme (nœud visuel = Sprite pour les bâtiments
+		# imagés, sinon Mesh cube).
+		_make_ghost_transparent(_ghost)
 	# Position selon la souris sur le sol.
 	var ground := _ground_point(mouse_pos)
 	if ground.has("pos"):
@@ -1364,8 +1425,7 @@ func _update_ghost(mouse_pos: Vector2) -> void:
 		var center := anchor + Vector2i(half, half)
 		_ghost.global_position = _cell_center(center)
 		_ghost_valid = _rect_free(anchor, f, _moving_building)
-		var mat := _ghost.get_node("Mesh").material_override as StandardMaterial3D
-		mat.albedo_color = Color(0.3, 1.0, 0.35, 0.5) if _ghost_valid else Color(1.0, 0.3, 0.3, 0.5)
+		_tint_ghost(_ghost, _ghost_valid)
 	else:
 		_ghost_valid = false
 
