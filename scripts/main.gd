@@ -1726,9 +1726,16 @@ func _order_action(screen_pos: Vector2, mode: int = OrderMode.NONE) -> void:
 	var rn := _resource_at(node)
 	if rn != null:
 		rn.flash_selected()
+		var gathered := false
 		for u in _selected_units:
 			if u is Villager:
 				u.send_to_gather(rn)
+				gathered = true
+			elif u is Hero and u.has_method("gather_troop"):
+				u.call("gather_troop", rn)
+				gathered = true
+		if not gathered:
+			_notify("Sélectionnez un paysan pour récolter.")
 		return
 	# Ennemi à attaquer.
 	var enemy := _ancestor_in_group(node, "enemy")
@@ -1774,6 +1781,10 @@ func _execute_gather_order(screen_pos: Vector2) -> void:
 	for u in _selected_units:
 		if u is Villager:
 			u.send_to_gather(rn)
+			got_villager = true
+		elif u is Hero and u.has_method("gather_troop"):
+			# Le héros commande sa troupe : les paysans de la troupe récoltent.
+			u.call("gather_troop", rn)
 			got_villager = true
 	if not got_villager:
 		_notify("Sélectionnez un paysan pour récolter.")
@@ -2489,9 +2500,11 @@ func _find_free_unit(kind: int, hero: Node) -> Node:
 
 ## Renvoie la dernière unité du type dans la troupe (pour la désassigner en 1er).
 func _last_troop_unit(hero: Node, kind: int) -> Node:
-	if hero == null or not is_instance_valid(hero) or not hero.has_method("_troop"):
+	if hero == null or not is_instance_valid(hero):
 		return null
 	var arr: Array = hero.get("_troop")
+	if arr == null or arr.is_empty():
+		return null
 	for i in range(arr.size() - 1, -1, -1):
 		var u: Node = arr[i]
 		if kind == Hero.UnitKind.VILLAGER and u is Villager:

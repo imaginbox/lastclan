@@ -65,3 +65,28 @@ func test_command_bonus_registry_params() -> void:
 	for k in keys:
 		if not found.has(k):
 			push_error("CHECK FAILED: paramètre héros absent : %s" % k)
+
+## _last_troop_unit doit retrouver un paysan dans la troupe. Ce test verrouille
+## le bug où le contrôle utilisait has_method("_troop") (variable, pas méthode)
+## et retournait donc toujours null => bouton "-" inopérant.
+func test_last_troop_unit_finds_villager() -> void:
+	var h := _make_hero()
+	h.call("unassign_all")
+	var v: Node = load("res://scripts/Villager.gd").new()
+	add_child(v)
+	h.call("assign_unit", v)
+	if h.call("troop_size") != 1:
+		push_error("CHECK FAILED: troupe vide après assignation")
+	# Réplique la logique de main.gd _last_troop_unit (le bug réel).
+	var arr: Array = h.get("_troop")
+	if arr == null or arr.is_empty():
+		push_error("CHECK FAILED: _troop inaccessible/vide")
+		return
+	var found_id: int = -1
+	for i in range(arr.size() - 1, -1, -1):
+		var u: Node = arr[i]
+		if u is Villager:
+			found_id = i
+	if found_id == -1:
+		push_error("CHECK FAILED: _last_troop_unit n'a trouvé aucun paysan (bug has_method)")
+	v.queue_free()

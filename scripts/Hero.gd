@@ -188,6 +188,9 @@ func assign_unit(unit: Node) -> bool:
 
 func unassign_unit(unit: Node) -> void:
 	_troop.erase(unit)
+	# Libère l'unité : elle perd le bonus de commandement et cesse de suivre le héros.
+	if unit != null and is_instance_valid(unit) and unit.has_method("notify_command"):
+		unit.call("notify_command", null)
 	_build_formation_spots()
 	troop_changed.emit()
 
@@ -257,6 +260,28 @@ func _move_troop_to_formation() -> void:
 		if u.has_method("move_to_point"):
 			u.call("move_to_point", spot)
 
+## Ordonne à la troupe de récolter une ressource : chaque paysan de la troupe
+## va la puiser (le héros, lui, reste où il est). Le conflit avec le rappel de
+## formation est évité car _physics_process ne rappelle pas les récolteurs.
+func gather_troop(resource: ResourceNode) -> void:
+	if resource == null or not resource.has_left():
+		return
+	for u in _troop:
+		if u is Villager and u.has_method("send_to_gather"):
+			u.call("send_to_gather", resource)
+
+## Vrai si ce membre de la troupe est actuellement occupé à récolter (à ne pas
+## rappeler vers la formation pendant qu'il travaille).
+func _is_member_busy(u: Node) -> bool:
+	if u is Villager and u.has_method("_state"):
+		var st: int = int(u.get("_state"))
+		if st == 1 or st == 2 or st == 3:  # GOING_TO_RESOURCE, GATHERING, RETURNING
+			return true
+	return false
+
+func has_gather_command_flag() -> void:
+	pass
+
 ## Raccompagne les membres qui se sont éloignés de la formation (troupe collée).
 func _physics_process(delta: float) -> void:
 	# Mort éventuelle.
@@ -271,6 +296,9 @@ func _physics_process(delta: float) -> void:
 			continue
 		var off: Vector3 = _formation_spots[i] if i < _formation_spots.size() else Vector3.ZERO
 		var spot: Vector3 = global_position + off
+		# Ne pas rappeler un membre occupé à récolter : il reviendra tout seul.
+		if _is_member_busy(u):
+			continue
 		if u.has_method("_hdist"):
 			var d: float = u.call("_hdist", spot)
 			if d > 1.6:
