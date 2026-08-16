@@ -1532,6 +1532,11 @@ func _unhandled_input(event: InputEvent) -> void:
 						_refresh_order_button()
 					_dragging = false
 					_drag_selecting = false
+					# Toujours masquer le rectangle de sélection : en mode ordre armé
+					# (persistant avec le héros) un drag l'avait affiché sans jamais
+					# le cacher -> trace verte résiduelle à l'écran.
+					if _overlay_rect != null:
+						_overlay_rect.visible = false
 					_order_action(event.position, m)
 					return
 				_on_left_release(event.position)
@@ -1572,6 +1577,8 @@ func _unhandled_input(event: InputEvent) -> void:
 						if _order_hint != null:
 							_order_hint.visible = false
 						_refresh_order_button()
+					if _overlay_rect != null:
+						_overlay_rect.visible = false
 					_order_action(event.position, m)
 				elif _ghost_active():
 					_confirm_ghost()
@@ -2329,7 +2336,8 @@ func _push_toast(text: String, color: Color = Color(0.85, 0.66, 0.3)) -> void:
 	tw.tween_callback(card.queue_free)
 
 ## Pas d'un fade de toast : ne fait rien si le toast a été libéré entre-temps.
-func _toast_fade_step(card: Control, alpha: float) -> void:
+## (l'ordre des args est (valeur_anim, card) car bind() ajoute card en dernier)
+func _toast_fade_step(alpha: float, card: Control) -> void:
 	if card == null or not is_instance_valid(card):
 		return
 	card.modulate.a = alpha

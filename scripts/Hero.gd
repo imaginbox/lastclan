@@ -269,6 +269,14 @@ func gather_troop(resource: ResourceNode) -> void:
 	for u in _troop:
 		if u is Villager and u.has_method("send_to_gather"):
 			u.call("send_to_gather", resource)
+	# Le héros (commandant) s'approche aussi de la ressource : la troupe qui n'est
+	# pas occupée à récolter le suit vers ce point. Les paysans déjà en récolte ne
+	# sont pas rappelés (voir _is_member_busy) et reviendront après.
+	var target: Vector3 = resource.global_position
+	target.y = global_position.y
+	nav_agent.target_position = target
+	set_state(State.MOVING)
+	_move_troop_to_formation()
 
 ## Vrai si ce membre de la troupe est actuellement occupé à récolter (à ne pas
 ## rappeler vers la formation pendant qu'il travaille).
