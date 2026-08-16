@@ -32,7 +32,7 @@ const TYPES := {
 	Type.BARRACKS: {
 		"name": "Caserne",
 		"cost_gold": 100, "cost_wood": 80, "cost_stone": 40,
-		"footprint": 2, "max_level": 3,
+		"footprint": 2, "max_level": 6,
 		"upg_gold": 80, "upg_wood": 60,
 		"min_th_level": 2,
 		"color": Color(0.7, 0.2, 0.2),
@@ -42,7 +42,7 @@ const TYPES := {
 	Type.HOUSE: {
 		"name": "Maison",
 		"cost_gold": 40, "cost_wood": 60,
-		"footprint": 1, "max_level": 3,
+		"footprint": 1, "max_level": 6,
 		"upg_gold": 40, "upg_wood": 40,
 		"min_th_level": 1,
 		"color": Color(0.8, 0.6, 0.35),
@@ -60,7 +60,7 @@ const TYPES := {
 	Type.FERME: {
 		"name": "Ferme",
 		"cost_gold": 30, "cost_wood": 60,
-		"footprint": 2, "max_level": 3,
+		"footprint": 2, "max_level": 6,
 		"upg_gold": 40, "upg_wood": 40,
 		"min_th_level": 1,
 		"color": Color(0.9, 0.8, 0.2),
@@ -78,7 +78,7 @@ const TYPES := {
 	Type.MINE_OR: {
 		"name": "Mine d'Or",
 		"cost_gold": 0, "cost_wood": 100, "cost_stone": 60,
-		"footprint": 1, "max_level": 3,
+		"footprint": 1, "max_level": 6,
 		"upg_gold": 60, "upg_wood": 60,
 		"min_th_level": 1,
 		"color": Color(1.0, 0.84, 0.0),
@@ -91,6 +91,10 @@ const HEIGHT := 2.0   # hauteur de base d'un bâtiment (mètres)
 ## grande et la HDV étant le centre névralgique du village, on la met bien en
 ## valeur (1.5x la largeur d'une case).
 const HDV_VISUAL_SCALE := 1.5
+## Échelle d'affichage des autres bâtiments imagés (Caserne, Ferme, Maison,
+## Mine) : on les affiche 1.3x plus larges que l'empreinte (comme la HDV,
+## mais un peu moins pour ne pas dominer le village).
+const BUILDING_VISUAL_SCALE := 1.3
 
 var type: Type = Type.HOUSE
 var level: int = 1
@@ -170,6 +174,16 @@ func _cfg_prefix() -> String:
 	return ""
 
 ## Superpose sur `cfg` les valeurs éditables du panneau admin (si présent).
+## Sous-dossier d'images par niveau de ce bâtiment, ou "" si aucun (rendu cube).
+func _sprite_folder() -> String:
+	match type:
+		Type.TOWN_HALL: return "HDV/HDV"
+		Type.BARRACKS: return "Caserne/Caserne"
+		Type.HOUSE: return "Maison/Maison"
+		Type.FERME: return "Ferme/Ferme"
+		Type.MINE_OR: return "Mine/Mine"
+	return ""
+
 func _apply_cfg_overrides(cfg: Dictionary) -> void:
 	var gc := get_node_or_null("/root/GameConfig")
 	if gc == null:
@@ -392,12 +406,12 @@ func _build_visual() -> void:
 
 	var size := Vector3(f, h, f)
 
-	if type == Type.TOWN_HALL:
-		# Hôtel de ville : image 2D debout (Sprite3D billboard) au lieu d'un cube.
-		# Le jeu n'a qu'un seul angle de caméra, une image suffit donc.
+	if not _sprite_folder().is_empty():
+		# Image 2D debout (Sprite3D billboard) au lieu d'un cube : le jeu n'a
+		# qu'un seul angle de caméra, une image par niveau suffit donc.
 		_sprite = Sprite3D.new()
 		_sprite.name = "Sprite"
-		_sprite.texture = _town_hall_texture()
+		_sprite.texture = _building_texture()
 		_sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		_sprite.centered = true
 		var tsize := _sprite.texture.get_size()
@@ -407,9 +421,11 @@ func _build_visual() -> void:
 		# sprite serait démesuré (plus de 10 m) et sa base s'enfoncerait sous le
 		# sol, qui le sectionnait à mi-hauteur (« bâtiment coupé »).
 		if tsize.x > 0:
-			# HDV_VISUAL_SCALE (1.5) agrandit l'affichage au-delà de l'empreinte pour
-			# que la HDV domine le village ; la collision garde l'empreinte réelle.
-			_sprite.pixel_size = (f * HDV_VISUAL_SCALE) / float(tsize.x)
+			# HDV_VISUAL_SCALE (1.5) / BUILDING_VISUAL_SCALE (1.3) agrandit
+			# l'affichage au-delà de l'empreinte pour dominer le village ; la
+			# collision garde l'empreinte réelle.
+			var vs := HDV_VISUAL_SCALE if type == Type.TOWN_HALL else BUILDING_VISUAL_SCALE
+			_sprite.pixel_size = (f * vs) / float(tsize.x)
 		else:
 			_sprite.pixel_size = 1.0
 		# La hauteur affichée en mètres = tsize.y * pixel_size. On la déduit pour
@@ -446,20 +462,28 @@ func _build_visual() -> void:
 	shape.position.y = h / 2.0
 	add_child(shape)
 
-## Texture de l'hôtel de ville selon son niveau (1..6 -> HDV-1..6.png).
-## Si une image personnalisée est configurée (panel admin → Apparence → HDV),
-## elle remplace les images par niveau.
-func _town_hall_texture() -> Texture2D:
-	var gc := get_node_or_null("/root/GameConfig")
-	if gc != null and gc.get_value("apparence.hdv.image") != null:
-		var img := str(gc.get_value("apparence.hdv.image"))
-		if img != "":
-			var t := load(img) as Texture2D
-			if t != null:
-				return t
-	var lvl := clampi(level, 1, 6)
-	var path := "res://assets/models/Batiments/HDV/HDV-%d.png" % lvl
+## Texture du bâtiment selon son niveau (ex. Caserne-1..6.png).
+## Rétrocompat : _town_hall_texture() reste défini pour les tests HDV.
+func _building_texture() -> Texture2D:
+	var folder := _sprite_folder()
+	if folder.is_empty():
+		return null
+	# Image HDV personnalisée du panel admin (Apparence) si fournie.
+	if type == Type.TOWN_HALL:
+		var gc := get_node_or_null("/root/GameConfig")
+		if gc != null and gc.get_value("apparence.hdv.image") != null:
+			var img := str(gc.get_value("apparence.hdv.image"))
+			if img != "":
+				var t := load(img) as Texture2D
+				if t != null:
+					return t
+	var lvl := clampi(level, 1, max_level())
+	var path := "res://assets/models/Batiments/%s-%d.png" % [folder, lvl]
 	return load(path) as Texture2D
+
+## Rétrocompat (tests) : alias vers _building_texture pour l'hôtel de ville.
+func _town_hall_texture() -> Texture2D:
+	return _building_texture()
 
 func _update_visual() -> void:
 	# L'HDV change de texture à chaque niveau + s'assombrit quand il est endommagé.
