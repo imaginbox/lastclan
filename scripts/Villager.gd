@@ -64,6 +64,9 @@ var last_damage_ms: int = -100000
 ## Héros commandant cette unité (bonus de commandement) — null = unité libre.
 var command_hero: Node = null
 
+## True pendant le rappel de formation par le héros : court plus vite pour suivre.
+var _following_hero: bool = false
+
 var _state: State = State.IDLE
 var _assigned_resource: ResourceNode = null   # ressource qu'il doit exploiter (boucle)
 var _carried_type: ResourceNode.ResourceType = ResourceNode.ResourceType.GOLD
@@ -159,6 +162,8 @@ func _atk_damage() -> int:
 
 ## Multiplicateur de vitesse du paysan (bonus de commandement inclus).
 func _speed_mult() -> float:
+	if _following_hero and command_hero != null and is_instance_valid(command_hero):
+		return command_hero.call("command_follow_speed_mult")
 	if command_hero != null and is_instance_valid(command_hero):
 		return command_hero.call("command_speed_mult")
 	return 1.0
@@ -662,6 +667,8 @@ func _anim(anim_name: StringName) -> void:
 		anim_player.play(anim_name)
 
 func set_state(s: State) -> void:
+	if s != State.MOVING:
+		_following_hero = false
 	_state = s
 	# Arrêt immédiat de la physique ET de l'animation de course lors d'un arrêt.
 	if _state in [State.GATHERING, State.ATTACKING, State.IDLE]:

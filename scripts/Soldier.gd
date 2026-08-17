@@ -77,7 +77,13 @@ func _atk_damage() -> int:
 ## Héros commandant cette unité — null = unité libre.
 var command_hero: Node = null
 
+## True quand le héros rappelle cette unité en formation : elle court plus vite
+## pour pouvoir se replacer AUTOUR du héros (devant lui) pendant son déplacement.
+var _following_hero: bool = false
+
 func _speed_mult() -> float:
+	if _following_hero and command_hero != null and is_instance_valid(command_hero):
+		return command_hero.call("command_follow_speed_mult")
 	if command_hero != null and is_instance_valid(command_hero):
 		return command_hero.call("command_speed_mult")
 	return 1.0
@@ -148,6 +154,7 @@ func move_to_point(point: Vector3) -> void:
 
 ## Attaque une cible (nœud avec take_damage).
 func attack_target(target: Node3D) -> void:
+	_following_hero = false
 	_target = target
 	_state = State.MOVE
 	nav_agent.target_position = target.global_position
@@ -205,6 +212,7 @@ func _move(delta: float) -> void:
 			return
 	elif nav_agent.is_navigation_finished() and global_position.distance_to(_move_point) <= REACH_DISTANCE:
 		_state = State.IDLE
+		_following_hero = false
 		return
 	_step(delta)
 

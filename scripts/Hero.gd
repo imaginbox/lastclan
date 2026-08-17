@@ -15,6 +15,10 @@ extends CharacterBody3D
 enum State { IDLE, MOVING, MOVING_TO_ATTACK, ATTACKING }
 
 const MOVE_SPEED: float = 4.2
+## Multiplicateur de vitesse de la troupe pendant le rappel de formation : doit
+## dépasser le héros pour que les soldats puissent se replacer AUTOUR de lui
+## (devant lui) pendant son déplacement, au lieu de rester à la traîne.
+const FOLLOW_SPEED_MULT: float = 1.5
 const REACH_DISTANCE: float = 0.6
 const ATTACK_RANGE: float = 1.9
 const ATTACK_DAMAGE: int = 8
@@ -153,6 +157,8 @@ func command_hp_mult() -> float:
 	return _command_bonus_mult()
 func command_speed_mult() -> float:
 	return 1.0 + (_command_bonus_mult() - 1.0) * 0.5
+func command_follow_speed_mult() -> float:
+	return FOLLOW_SPEED_MULT
 
 func _town_hall() -> Node:
 	if not is_inside_tree():
@@ -327,6 +333,7 @@ func _move_troop_to_formation() -> void:
 			continue
 		var spot: Vector3 = _formation_spot_world(i)
 		if u.has_method("move_to_point"):
+			u.set("_following_hero", true)
 			u.call("move_to_point", spot)
 
 ## Ordonne à la troupe de récolter une ressource : chaque paysan de la troupe va
@@ -388,6 +395,7 @@ func _physics_process(delta: float) -> void:
 			var d: float = u.call("_hdist", spot)
 			if d > tol:
 				if u.has_method("move_to_point"):
+					u.set("_following_hero", true)
 					u.call("move_to_point", spot)
 
 	# Héros : déplacement + attaque.
