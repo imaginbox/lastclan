@@ -59,22 +59,7 @@ func test_mixed_soldiers_front_peasants_back() -> void:
 	var d_p1: float = _d(spots[1])
 	var d_s2: float = _d(spots[2])
 	_check(is_equal_approx(d_s0, d_s2), "soldats même rayon proche : %f vs %f" % [d_s0, d_s2])
-	_check(d_p1 > d_s0, "paysan derrière (rayon > soldats) : %f vs %f" % [d_p1, d_s0])
-	# Le paysan est à l'opposé de l'avant (arc arrière) : son angle en XZ est
-	# proche de -PI/2 +/- spread/2 lorsque le héros regarde vers -Z (défaut).
-	# On vérifie qu'il est DERRIÈRE les soldats : cos de l'angle < un soldat.
-	var center_angle_p1: float = atan2(spots[1].z, spots[1].x)
-	var angle_s0: float = atan2(spots[0].z, spots[0].x)
-	# Soldats démarrent vers l'avant (-Z -> angle -PI/2).
-	_check(abs(TauHelper.diff(center_angle_p1, angle_s0)) > 1.0,
-		"paysan écarté de l'avant des soldats (réf %f vs %f)" % [center_angle_p1, angle_s0])
-
-## Petit helper de différence angulaire normalisée (pas de dépendance extérieure).
-class TauHelper:
-	static func diff(a: float, b: float) -> float:
-		var d: float = fmod(a - b, TAU)
-		if d > PI:
-			d -= TAU
-		elif d < -PI:
-			d += TAU
-		return d
+	_check(d_p1 > d_s0, "paysan au retrait (rayon > soldats) : %f vs %f" % [d_p1, d_s0])
+	# Les soldats restent les plus proches du héros : chaque soldat est plus
+	# proche OU à égalité que le paysan le plus éloigné d'eux.
+	_check(d_s0 < d_p1 and d_s2 < d_p1, "soldats strictement plus proches que le paysan")

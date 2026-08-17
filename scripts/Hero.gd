@@ -257,10 +257,12 @@ func _build_formation_spots() -> void:
 	var rs: float = 1.1 + sqrt(float(maxi(soldier_count, 1))) * 0.35
 	var s_step := TAU / maxi(soldier_count, 1)
 
-	# Paysans : arc arrière (à l'opposé de l'avant), à un rayon plus grand que
-	# l'anneau des soldats pour rester « derrière eux ».
+	# Paysans : arc ARRIÈRE. La caméra regarde depuis +Z (l'avant de l'écran =
+	# +Z ; le haut de l'écran = -Z). Pour que les paysans restent « derrière »
+	# (au haut de l'écran, à l'abri derrière le rideau de soldats), on les place
+	# du côté -Z, à un rayon plus grand que l'anneau des soldats.
 	var rp: float = rs + 1.2 + sqrt(float(maxi(peasant_count, 1))) * 0.35
-	var back_center := a_fwd + PI
+	var back_center := a_fwd
 	var spread: float = 2.2
 	var p_step := spread / maxi(peasant_count, 1)
 	# Décalage de départ pour centrer l'arc derrière (au milieu des soldats voisins).
