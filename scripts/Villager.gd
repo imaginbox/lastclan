@@ -431,16 +431,26 @@ func _return_to_townhall(delta: float) -> void:
 ## récolte). C'est ici, et non à la récolte, que la ressource entre dans le stock.
 func _deliver_city() -> void:
 	if _carried_amount > 0:
+		var amount: int = _carried_amount
+		# Bonus de récolte du royaume (prospérité / déclin) + activité collective.
+		var realm := get_node_or_null("/root/Realm")
+		if realm != null:
+			var bonus: float = 1.0
+			if realm.has_method("harvest_bonus"):
+				bonus = float(realm.call("harvest_bonus"))
+			amount = int(round(float(amount) * bonus))
+			if realm.has_method("activity"):
+				realm.call("activity", 0.3)
 		match _carried_type:
 			ResourceNode.ResourceType.GOLD:
-				ResourceManager.add_gold(_carried_amount)
+				ResourceManager.add_gold(amount)
 			ResourceNode.ResourceType.WOOD:
-				ResourceManager.add_wood(_carried_amount)
+				ResourceManager.add_wood(amount)
 			ResourceNode.ResourceType.STONE:
-				ResourceManager.add_stone(_carried_amount)
+				ResourceManager.add_stone(amount)
 			ResourceNode.ResourceType.FOOD:
-				ResourceManager.add_food(_carried_amount)
-		resource_delivered.emit(_carried_type, _carried_amount)
+				ResourceManager.add_food(amount)
+		resource_delivered.emit(_carried_type, amount)
 	_carried_amount = 0
 	_select_next_task()
 

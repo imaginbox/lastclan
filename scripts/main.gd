@@ -871,6 +871,10 @@ func _on_wildlife_died(monster: Node) -> void:
 			"gold": ResourceManager.add_gold(qty)
 		show_float_text(monster.global_position + Vector3(0, 1.5, 0), "+%d" % qty, _loot_color(res))
 	_notify("Faune vaincue ! +%d ressources" % total)
+	# Victoire au combat : nourrit la jauge du royaume (le royaume prospère en guerroyant).
+	var realm := get_node_or_null("/root/Realm")
+	if realm != null and realm.has_method("activity"):
+		realm.call("activity", 2.0)
 
 func _loot_color(res: String) -> Color:
 	match res:
