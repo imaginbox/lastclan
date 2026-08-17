@@ -183,6 +183,9 @@ func assign_unit(unit: Node) -> bool:
 	if unit.has_method("notify_command"):
 		unit.call("notify_command", self)
 	_build_formation_spots()
+	# Tire toute la troupe vers sa formation autour du héros : l'unité affectée
+	# (même si elle récoltait) vient maintenant rejoindre le héros.
+	_move_troop_to_formation()
 	troop_changed.emit()
 	return true
 
@@ -250,37 +253,40 @@ func attack_target(target: Node3D) -> void:
 
 ## La troupe suit le héros : on place le point de navigation de chaque membre sur
 ## sa position de formation (centre du héros + offset). Ils restent groupés.
+# Tire TOUTE la troupe vers la formation (ordre explicite : déplacement, ou
+# assignation). Ici on ne filtre PAS les récolteurs : quand l'utilisateur donne un
+# ordre de déplacement au héros ou affecte une unité, la troupe doit le rejoindre
+# immédiatement, même si un membre était en train de récolter. (Le suivi continu
+# du _physics_process, lui, évite de casser une récolte en cours.)
 func _move_troop_to_formation() -> void:
 	for i in _troop.size():
 		var u: Node = _troop[i]
 		if not is_instance_valid(u):
-			continue
-		# Ne pas re-casser un ordre de récolte en cours : un récolteur ne rejoint
-		# pas la formation (il reviendra après). Sinon la récolte est annulée.
-		if _is_member_busy(u):
 			continue
 		var off: Vector3 = _formation_spots[i] if i < _formation_spots.size() else Vector3.ZERO
 		var spot: Vector3 = global_position + off
 		if u.has_method("move_to_point"):
 			u.call("move_to_point", spot)
 
-## Ordonne à la troupe de récolter une ressource : chaque paysan de la troupe
-## va la puiser (le héros, lui, reste où il est). Le conflit avec le rappel de
-## formation est évité car _physics_process ne rappelle pas les récolteurs.
+## Ordonne à la troupe de récolter une ressource : chaque paysan de la troupe va
+## la puiser, et le héros s'approche aussi de la ressource. On ne tire pas la
+## troupe ici (gather_troop) pour ne pas annuler la récolte ; seul le suivi
+## continu de _physics_process ré-aiguille les membres après (sans casser une
+## récolte en cours grâce à _is_member_busy).
 func gather_troop(resource: ResourceNode) -> void:
 	if resource == null or not resource.has_left():
 		return
 	for u in _troop:
 		if u is Villager and u.has_method("send_to_gather"):
 			u.call("send_to_gather", resource)
-	# Le héros (commandant) s'approche aussi de la ressource : la troupe qui n'est
-	# pas occupée à récolter le suit vers ce point. Les paysans déjà en récolte ne
-	# sont pas rappelés (voir _is_member_busy) et reviendront après.
+	# Le héros (commandant) s'approche aussi de la ressource. On NE tire PAS la
+	# troupe ici : les paysans viennent de recevoir l'ordre de récolte et ne
+	# doivent pas être rappelés. Seul le suivi continu du _physics_process les
+	# ré-aiguillera après la récolte (sans casser celle en cours).
 	var target: Vector3 = resource.global_position
 	target.y = global_position.y
 	nav_agent.target_position = target
 	set_state(State.MOVING)
-	_move_troop_to_formation()
 
 ## Vrai si ce membre de la troupe est actuellement occupé à récolter (à ne pas
 ## rappeler vers la formation pendant qu'il travaille).
