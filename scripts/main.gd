@@ -134,6 +134,8 @@ var _clan_name_input: LineEdit = null
 var _clan_tag_input: LineEdit = null
 var _clan_join_input: LineEdit = null
 var _clan_list_label: Label = null
+var _alliance_join_input: LineEdit = null
+var _alliances_box: VBoxContainer = null
 
 ## --- Messages in-game (toasts) ---
 ## Les notifications (_notify) et les messages de chat reçus s'affichent dans un
@@ -2910,7 +2912,7 @@ func _setup_clan_button() -> void:
 	_clan_panel.offset_left = -340.0 * _ui_scale
 	_clan_panel.offset_top = 64.0 * _ui_scale
 	_clan_panel.offset_right = -12.0 * _ui_scale
-	_clan_panel.offset_bottom = 64.0 * _ui_scale + 320.0 * _ui_scale
+	_clan_panel.offset_bottom = 64.0 * _ui_scale + 420.0 * _ui_scale
 	var cbg := StyleBoxFlat.new()
 	cbg.bg_color = Color(0, 0, 0, 0.88)
 	cbg.corner_radius_top_left = 10
@@ -3019,6 +3021,33 @@ func _build_clan_panel_content() -> void:
 	leave_btn.pressed.connect(_on_leave_clan_pressed)
 	vb.add_child(leave_btn)
 
+	# ===== Alliances (diplomatie entre clans) =====
+	var sep := HSeparator.new()
+	vb.add_child(sep)
+	var ally_title := Label.new()
+	ally_title.text = "Alliances"
+	ally_title.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	vb.add_child(ally_title)
+	# Proposer une alliance à un clan (par tag).
+	var ally_row := HBoxContainer.new()
+	ally_row.add_theme_constant_override("separation", 6)
+	var ally_input := LineEdit.new()
+	ally_input.placeholder_text = "Tag à allier"
+	ally_input.max_length = 6
+	ally_input.custom_minimum_size = Vector2(0, 34 * _ui_scale)
+	ally_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ally_row.add_child(ally_input)
+	_alliance_join_input = ally_input
+	var ally_btn := Button.new()
+	ally_btn.text = "Proposer"
+	ally_btn.pressed.connect(_on_propose_alliance_pressed)
+	ally_row.add_child(ally_btn)
+	vb.add_child(ally_row)
+	# Liste dynamique des alliés + demandes en attente (reconstruite à chaque refresh).
+	_alliances_box = VBoxContainer.new()
+	_alliances_box.add_theme_constant_override("separation", 4)
+	vb.add_child(_alliances_box)
+
 	# Liste des clans existants.
 	_clan_list_label = Label.new()
 	_clan_list_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -3076,6 +3105,102 @@ func _refresh_clan_panel() -> void:
 		_clan_list_label.text = "Aucun clan pour l'instant.\nSoyez le premier à créer un clan !"
 	else:
 		_clan_list_label.text = "\n".join(lines)
+	_refresh_alliances_box()
+
+## Reconstruit la liste des alliés + demandes en attente de mon clan.
+func _refresh_alliances_box() -> void:
+	if _alliances_box == null:
+		return
+	for c in _alliances_box.get_children():
+		c.queue_free()
+	var clans: Node = _clans()
+	if clans == null or clans.my_clan == "":
+		var hint := Label.new()
+		hint.text = "Créez / rejoignez un clan pour nouer des alliances."
+		hint.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+		hint.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
+		_alliances_box.add_child(hint)
+		return
+	# Alliés actuels.
+	var allies: Array = clans.my_allies()
+	if allies.is_empty():
+		var none := Label.new()
+		none.text = "Aucun allié pour l'instant."
+		none.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+		none.add_theme_color_override("font_color", Color(0.6, 0.75, 0.6))
+		_alliances_box.add_child(none)
+	else:
+		for tag in allies:
+			_alliances_box.add_child(_make_alliance_row(tag, true))
+	# Demandes en attente (on peut les accepter / refuser).
+	var pending: Array = clans.my_pending()
+	for tag in pending:
+		_alliances_box.add_child(_make_alliance_row(tag, false))
+
+## Ligne d'alliance : un allié (avec « Rompre ») ou une demande (Accepter/Refuser).
+func _make_alliance_row(tag: String, is_ally: bool) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var label := Label.new()
+	label.text = ("Allié : [%s]" % tag) if is_ally else ("[%s] propose une alliance" % tag)
+	label.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(label)
+	if is_ally:
+		var b := Button.new()
+		b.text = "Rompre"
+		b.add_theme_font_size_override("font_size", int(12 * _ui_scale))
+		b.pressed.connect(_on_break_alliance.bind(tag))
+		row.add_child(b)
+	else:
+		var acc := Button.new()
+		acc.text = "Accepter"
+		acc.add_theme_font_size_override("font_size", int(12 * _ui_scale))
+		acc.pressed.connect(_on_accept_alliance.bind(tag))
+		row.add_child(acc)
+		var dec := Button.new()
+		dec.text = "Refuser"
+		dec.add_theme_font_size_override("font_size", int(12 * _ui_scale))
+		dec.pressed.connect(_on_decline_alliance.bind(tag))
+		row.add_child(dec)
+	return row
+
+func _on_propose_alliance_pressed() -> void:
+	var tag := _alliance_join_input.text.strip_edges()
+	if tag.is_empty():
+		_notify("Entrez le tag du clan à allier.")
+		return
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	if tag.to_upper() == clans.my_clan.to_upper():
+		_notify("Impossible de s'allier avec son propre clan.")
+		return
+	clans.propose_alliance(tag)
+	_notify("Demande d'alliance envoyée à [%s]." % tag.to_upper())
+	_alliance_join_input.text = ""
+	_refresh_alliances_box()
+
+func _on_accept_alliance(tag: String) -> void:
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	clans.accept_alliance(tag)
+	_notify("Alliance conclue avec [%s] !" % tag.to_upper())
+
+func _on_decline_alliance(tag: String) -> void:
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	clans.decline_alliance(tag)
+	_notify("Demande d'alliance de [%s] refusée." % tag.to_upper())
+
+func _on_break_alliance(tag: String) -> void:
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	clans.break_alliance(tag)
+	_notify("Alliance rompue avec [%s]." % tag.to_upper())
 
 ## Bouton flottant qui remplace le clic droit sur mobile. Apparaît dès qu'une
 ## unité est sélectionnée ; on le touche pour "armer" l'ordre, puis un tap sur

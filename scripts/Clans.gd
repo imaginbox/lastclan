@@ -95,6 +95,72 @@ func my_color() -> Color:
 		return Color.WHITE
 	return c.get("color", Color.WHITE)
 
+# ============================================================ ALLIANCES
+
+## Le leader de mon clan propose une alliance au clan `tag`.
+func propose_alliance(tag: String) -> void:
+	if my_clan == "":
+		return
+	if _is_server():
+		_server_propose_alliance(my_clan, tag.to_upper(), _local_peer_id())
+	else:
+		_propose_alliance_rpc.rpc_id(1, tag.to_upper())
+
+## Le leader accepte une demande d'alliance en attente venant du clan `tag`.
+func accept_alliance(tag: String) -> void:
+	if my_clan == "":
+		return
+	if _is_server():
+		_server_accept_alliance(my_clan, tag.to_upper(), _local_peer_id())
+	else:
+		_accept_alliance_rpc.rpc_id(1, tag.to_upper())
+
+## Le leader refuse une demande d'alliance en attente venant du clan `tag`.
+func decline_alliance(tag: String) -> void:
+	if my_clan == "":
+		return
+	if _is_server():
+		_server_decline_alliance(my_clan, tag.to_upper(), _local_peer_id())
+	else:
+		_decline_alliance_rpc.rpc_id(1, tag.to_upper())
+
+## Le leader rompt l'alliance avec le clan `tag`.
+func break_alliance(tag: String) -> void:
+	if my_clan == "":
+		return
+	if _is_server():
+		_server_break_alliance(my_clan, tag.to_upper(), _local_peer_id())
+	else:
+		_break_alliance_rpc.rpc_id(1, tag.to_upper())
+
+## Les clans `a` et `b` sont-ils alliés (mutuel) ?
+func are_allied(a: String, b: String) -> bool:
+	var x := a.to_upper()
+	var y := b.to_upper()
+	var cl: Dictionary = clans if _is_server() else local_clans
+	var c: Dictionary = cl.get(x, {})
+	return (c.get("alliances", []) as Array).has(y)
+
+## Mon clan est-il allié avec `tag` ?
+func is_allied(tag: String) -> bool:
+	return my_clan != "" and are_allied(my_clan, tag)
+
+## Tags des clans alliés à mon clan.
+func my_allies() -> Array:
+	if my_clan == "":
+		return []
+	var cl: Dictionary = clans if _is_server() else local_clans
+	var c: Dictionary = cl.get(my_clan, {})
+	return (c.get("alliances", []) as Array).duplicate()
+
+## Tags des demandes d'alliance en attente vers mon clan.
+func my_pending() -> Array:
+	if my_clan == "":
+		return []
+	var cl: Dictionary = clans if _is_server() else local_clans
+	var c: Dictionary = cl.get(my_clan, {})
+	return (c.get("pending", []) as Array).duplicate()
+
 # ============================================================ SERVEUR (AUTORITÉ)
 
 func _is_server() -> bool:
@@ -119,6 +185,8 @@ func _server_create_clan(clan_name: String, tag: String, color_index: int, leade
 		"leader": leader,
 		"members": {str(leader): Role.LEADER},
 		"grandeur": 0,
+		"alliances": [],   # tags des clans alliés (mutuels, confirmés)
+		"pending": [],     # tags des clans qui m'ont demandé une alliance
 	}
 	# Le leader quitte son éventuel ancien clan automatiquement.
 	_remove_member_from_all(leader)
@@ -157,6 +225,78 @@ func _server_promote(leader_peer: int, target_peer: int) -> void:
 	if not clans[t]["members"].has(str(target_peer)):
 		return
 	clans[t]["members"][str(target_peer)] = Role.OFFICER
+	_broadcast()
+
+# ============================================================ ALLIANCES (SERVEUR)
+
+## Seul le leader du clan `tag` peut faire de la diplomatie.
+func _can_diplomacy(tag: String, peer: int) -> bool:
+	if not clans.has(tag):
+		return false
+	return int(clans[tag].get("leader", -1)) == peer
+
+func _server_propose_alliance(from_tag: String, to_tag: String, leader: int) -> void:
+	if from_tag == to_tag:
+		return
+	if not clans.has(from_tag) or not clans.has(to_tag):
+		return
+	if not _can_diplomacy(from_tag, leader):
+		return
+	# Déjà alliés ou demande déjà en cours -> rien.
+	if (clans[from_tag].get("alliances", []) as Array).has(to_tag):
+		return
+	var pending: Array = clans[to_tag].get("pending", [])
+	if pending.has(from_tag):
+		return
+	pending.append(from_tag)
+	clans[to_tag]["pending"] = pending
+	_broadcast()
+
+func _server_accept_alliance(me_tag: String, other_tag: String, leader: int) -> void:
+	if not clans.has(me_tag) or not clans.has(other_tag):
+		return
+	if not _can_diplomacy(me_tag, leader):
+		return
+	var pending: Array = clans[me_tag].get("pending", [])
+	if not pending.has(other_tag):
+		return
+	# Confirmation mutuelle.
+	var a: Array = clans[me_tag].get("alliances", [])
+	var b: Array = clans[other_tag].get("alliances", [])
+	if not a.has(other_tag):
+		a.append(other_tag)
+	if not b.has(me_tag):
+		b.append(me_tag)
+	clans[me_tag]["alliances"] = a
+	clans[other_tag]["alliances"] = b
+	pending.erase(other_tag)
+	clans[me_tag]["pending"] = pending
+	var op: Array = clans[other_tag].get("pending", [])
+	op.erase(me_tag)
+	clans[other_tag]["pending"] = op
+	_broadcast()
+
+func _server_decline_alliance(me_tag: String, other_tag: String, leader: int) -> void:
+	if not clans.has(me_tag):
+		return
+	if not _can_diplomacy(me_tag, leader):
+		return
+	var pending: Array = clans[me_tag].get("pending", [])
+	pending.erase(other_tag)
+	clans[me_tag]["pending"] = pending
+	_broadcast()
+
+func _server_break_alliance(me_tag: String, other_tag: String, leader: int) -> void:
+	if not clans.has(me_tag) or not clans.has(other_tag):
+		return
+	if not _can_diplomacy(me_tag, leader):
+		return
+	var a: Array = clans[me_tag].get("alliances", [])
+	var b: Array = clans[other_tag].get("alliances", [])
+	a.erase(other_tag)
+	b.erase(me_tag)
+	clans[me_tag]["alliances"] = a
+	clans[other_tag]["alliances"] = b
 	_broadcast()
 
 ## Retire `peer` de tout clan. Renvoie la liste des tags modifiés.
@@ -206,6 +346,34 @@ func _leave_clan_rpc() -> void:
 	if not _is_server():
 		return
 	_server_leave_clan(multiplayer.get_remote_sender_id())
+
+@rpc("any_peer", "reliable")
+func _propose_alliance_rpc(tag: String) -> void:
+	if not _is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	_server_propose_alliance(_tag_of(sender), tag.to_upper(), sender)
+
+@rpc("any_peer", "reliable")
+func _accept_alliance_rpc(tag: String) -> void:
+	if not _is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	_server_accept_alliance(_tag_of(sender), tag.to_upper(), sender)
+
+@rpc("any_peer", "reliable")
+func _decline_alliance_rpc(tag: String) -> void:
+	if not _is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	_server_decline_alliance(_tag_of(sender), tag.to_upper(), sender)
+
+@rpc("any_peer", "reliable")
+func _break_alliance_rpc(tag: String) -> void:
+	if not _is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	_server_break_alliance(_tag_of(sender), tag.to_upper(), sender)
 
 ## Le serveur diffuse le registre complet à tous (et à lui-même).
 @rpc("any_peer", "call_local", "reliable")
