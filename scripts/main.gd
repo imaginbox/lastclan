@@ -40,6 +40,10 @@ var _rebake_timer: Timer = null
 ## Racine des créatures PvE (faune hostile) générées sur la carte.
 var _wildlife_root: Node3D = null
 
+## Cœur de l'avant-poste ennemi à piller (repère de raid), null une fois détruit.
+var _raid_outpost: Node3D = null
+var _raid_arrow: Polygon2D = null
+
 var _camera: Camera3D = null
 var _selected_units: Array[Node] = []
 var _selected_building: Building = null
@@ -896,6 +900,7 @@ func _spawn_enemy_outpost() -> void:
 	var core: Node3D = ENEMY_OUTPOST_SCENE.instantiate()
 	core.position = pos
 	_wildlife_root.add_child(core)
+	_raid_outpost = core
 	core.add_to_group("enemy")
 	# Cercle rouge (ennemi) + barre de vie, comme les autres unités.
 	core.add_child(_make_ground_circle(Color(0.85, 0.15, 0.15)))
@@ -930,6 +935,35 @@ func _on_outpost_died(outpost: Node) -> void:
 	var realm := get_node_or_null("/root/Realm")
 	if realm != null and realm.has_method("activity"):
 		realm.call("activity", 3.0)
+	_raid_outpost = null
+	_update_raid_indicator()
+
+## Met à jour la flèche de raid : la place en bord d'écran, orientée vers
+## l'avant-poste ennemi, tant que celui-ci existe et est hors de la caméra.
+func _update_raid_indicator() -> void:
+	if _raid_arrow == null:
+		return
+	if _raid_outpost == null or not is_instance_valid(_raid_outpost) or _camera == null:
+		_raid_arrow.visible = false
+		return
+	var sp: Vector2 = _camera.unproject_position(_raid_outpost.global_position + Vector3(0.0, 3.0, 0.0))
+	var view: Vector2 = _raid_arrow.get_viewport().get_visible_rect().size
+	var center: Vector2 = view / 2.0
+	# Marge : si le repère est dans l'écran (avec un peu de marge), on le masque.
+	if sp.x >= 0.0 and sp.x <= view.x and sp.y >= 0.0 and sp.y <= view.y:
+		_raid_arrow.visible = false
+		return
+	var dir := (sp - center).normalized()
+	var margin := 70.0
+	var half: Vector2 = view / 2.0 - Vector2(margin, margin)
+	var scale_f := 1e9
+	if abs(dir.x) > 0.001:
+		scale_f = minf(scale_f, half.x / abs(dir.x))
+	if abs(dir.y) > 0.001:
+		scale_f = minf(scale_f, half.y / abs(dir.y))
+	_raid_arrow.position = center + dir * scale_f
+	_raid_arrow.rotation = dir.angle() + PI / 2.0
+	_raid_arrow.visible = true
 
 func _add_default_task(villager: Node3D) -> void:
 	var rn := _nearest_resource_node(villager.global_position)
@@ -2254,6 +2288,20 @@ func _setup_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 40
 	add_child(layer)
+	# ===== Flèche de raid : pointe vers l'avant-poste ennemi quand il est hors
+	# écran, pour que le joueur le repère et puisse le piller. Masquée quand le
+	# cœur est détruit ou déjà visible à l'écran.
+	_raid_arrow = Polygon2D.new()
+	_raid_arrow.name = "RaidArrow"
+	_raid_arrow.polygon = PackedVector2Array([Vector2(0, -16), Vector2(12, 8), Vector2(-12, 8)])
+	_raid_arrow.color = Color(1.0, 0.35, 0.2)
+	_raid_arrow.visible = false
+	layer.add_child(_raid_arrow)
+	var raid_timer := Timer.new()
+	raid_timer.wait_time = 0.2
+	raid_timer.autostart = true
+	raid_timer.timeout.connect(_update_raid_indicator)
+	layer.add_child(raid_timer)
 	# Barre de ressources style Clash of Clans en haut : chaque ressource dans
 	# son cartouche arrondi (fond bois + liseré doré), icône à gauche, valeur à
 	# droite. La rangée est centrée, comme l'interface CoC.
