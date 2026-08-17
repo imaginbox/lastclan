@@ -137,9 +137,9 @@ var _hud_clan_label: Label = null
 var _hud_extra_box: HBoxContainer = null
 var _hud_extra_panel: PanelContainer = null
 var _hud_extra_vbox: VBoxContainer = null
-var _hud_hero_count_label: Label = null
-var _hud_recruit_hero_btn: Button = null
-var _extra_hero_index: int = 0
+var _hud_hero_status_label: Label = null
+var _hero_active: bool = true
+var _hero_respawn_left: float = 0.0
 var _hud_plus_btn: Button = null
 var _clan_panel: PanelContainer = null
 var _clan_name_input: LineEdit = null
@@ -323,6 +323,12 @@ func _spawn_world() -> void:
 	amove_timer.autostart = true
 	amove_timer.timeout.connect(_on_a_move_tick)
 	add_child(amove_timer)
+	# Timer de réapparition du héros : compte à rebours de la convalescence.
+	var hero_respawn_timer := Timer.new()
+	hero_respawn_timer.wait_time = 0.5
+	hero_respawn_timer.autostart = true
+	hero_respawn_timer.timeout.connect(_on_hero_respawn_tick)
+	add_child(hero_respawn_timer)
 	_await_frame_then_bake()
 
 ## Vide les nœuds du monde générés (ressources, décor, bâtiments, unités) pour
@@ -851,7 +857,44 @@ func _spawn_hero() -> void:
 	# Cercle au sol DORÉ distinct + barre de vie, pour bien repérer le héros.
 	h.add_child(_make_ground_circle(Color(1.0, 0.82, 0.15)))
 	h.add_child(_make_health_bar_node())
-	h.died.connect(_on_local_unit_died)
+	h.died.connect(_on_hero_died)
+	_hero_active = true
+	_hero_respawn_left = 0.0
+	_refresh_hero_manager()
+
+## Mort du héros (modèle « commandant blessé » type Rise of Kingdoms / Call of
+## Dragons) : le héros disparaît du champ de bataille et entre en convalescence.
+## Il revient automatiquement à la base après un délai — un seul héros en jeu.
+func _on_hero_died(_hero_node: Node) -> void:
+	if _hero_node.is_in_group("hero"):
+		_hero_node.remove_from_group("hero")
+	if _hero_node.is_in_group("player"):
+		_hero_node.remove_from_group("player")
+	_hero_node.queue_free()
+	_hero_active = false
+	_hero_respawn_left = HERO_RESPAWN_TIME
+	_notify("Votre héros est tombé ! En convalescence — il reviendra dans %.0f s." % HERO_RESPAWN_TIME)
+	_refresh_hero_manager()
+	_on_local_unit_died()  # purge troupe / sélection / compteurs
+
+## Compte à rebours de la convalescence du héros puis réapparition à la base.
+func _on_hero_respawn_tick() -> void:
+	if _hero_active:
+		return
+	_hero_respawn_left = maxf(_hero_respawn_left - 0.5, 0.0)
+	_refresh_hero_manager()
+	if _hero_respawn_left <= 0.0:
+		_spawn_hero()
+		_notify("Votre héros a recouvré ses forces !")
+
+## Met à jour l'affichage du statut du héros dans le panneau « + ».
+func _refresh_hero_manager() -> void:
+	if _hud_hero_status_label == null:
+		return
+	if _hero_active:
+		_hud_hero_status_label.text = "Héros : Actif"
+	else:
+		_hud_hero_status_label.text = "Héros : en convalescence (%.0f s)" % maxf(_hero_respawn_left, 0.0)
 
 ## À la mort d'une unité locale : la retire du jeu (déjà fait par queue_free)
 ## ET met à jour tous les tableaux — compteurs HUD, troupe des héros, inspecteur.
@@ -2431,24 +2474,18 @@ func _setup_hud() -> void:
 	_hud_clan_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	clan_row.add_child(_hud_clan_label)
 	_hud_extra_box.add_child(clan_row)
-	# ===== Gestionnaire de héros : recruter + compter les héros.
+	# ===== Gestionnaire de héros : statut (un seul héros, convalescence à la mort).
 	var hero_row := HBoxContainer.new()
 	hero_row.add_theme_constant_override("separation", int(6 * _ui_scale))
 	hero_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_hud_hero_count_label = Label.new()
-	_hud_hero_count_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
-	_hud_hero_count_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
-	hero_row.add_child(_hud_hero_count_label)
-	_hud_recruit_hero_btn = Button.new()
-	_hud_recruit_hero_btn.name = "RecruitHeroButton"
-	_hud_recruit_hero_btn.text = "＋ Recruter un héros (200 or / 100 nour.)"
-	_hud_recruit_hero_btn.custom_minimum_size = Vector2(0, 34 * _ui_scale)
-	_hud_recruit_hero_btn.add_theme_font_size_override("font_size", int(14 * _ui_scale))
-	_hud_recruit_hero_btn.focus_mode = Control.FOCUS_NONE
-	_stylize_coc_button(_hud_recruit_hero_btn)
-	_hud_recruit_hero_btn.pressed.connect(_on_recruit_hero_pressed)
-	hero_row.add_child(_hud_recruit_hero_btn)
+	_hud_hero_status_label = Label.new()
+	_hud_hero_status_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_hud_hero_status_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	_hud_hero_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hud_hero_status_label.custom_minimum_size = Vector2(240 * _ui_scale, 0)
+	hero_row.add_child(_hud_hero_status_label)
 	_hud_extra_vbox.add_child(hero_row)
+	_refresh_hero_manager()
 	# Liaisons données -> UI.
 	var realm := get_node_or_null("/root/Realm")
 	if realm != null:
@@ -2633,44 +2670,11 @@ func _refresh_unit_counts() -> void:
 		_hud_soldiers_label.text = "Soldats : %d" % soldiers
 	if _hud_hero_label != null:
 		_hud_hero_label.text = "Héros : %d" % heroes
-	if _hud_hero_count_label != null:
-		_hud_hero_count_label.text = "Héros en jeu : %d" % heroes
+	_refresh_hero_manager()
 
-## Coût (or / nourriture) pour recruter un nouveau héros.
-const HERO_RECRUIT_GOLD: int = 200
-const HERO_RECRUIT_FOOD: int = 100
-
-## Recrute un nouveau héros si les ressources le permettent.
-func _on_recruit_hero_pressed() -> void:
-	var rm := get_node("/root/ResourceManager")
-	if rm.gold < HERO_RECRUIT_GOLD or rm.food < HERO_RECRUIT_FOOD:
-		_notify("Pas assez de ressources pour recruter un héros (%d or, %d nourriture)." % [HERO_RECRUIT_GOLD, HERO_RECRUIT_FOOD])
-		return
-	rm.add_gold(-HERO_RECRUIT_GOLD)
-	rm.add_food(-HERO_RECRUIT_FOOD)
-	_spawn_extra_hero()
-	_notify("Nouveau héros recruté !")
-	if _hud_extra_panel != null:
-		_hud_extra_panel.visible = false
-	if _hud_plus_btn != null:
-		_hud_plus_btn.modulate = Color.WHITE
-
-## Fait apparaître un héros supplémentaire près du village et le sélectionne.
-func _spawn_extra_hero() -> void:
-	var h: Node3D = HERO_SCENE.instantiate()
-	villager_root.add_child(h)
-	h.position = _base_origin + Vector3(10.0 + float(_extra_hero_index) * 3.0, 0.0, 4.0)
-	h.add_to_group("hero")
-	h.add_to_group("player")
-	h.add_child(_make_ground_circle(Color(1.0, 0.82, 0.15)))
-	h.add_child(_make_health_bar_node())
-	h.died.connect(_on_local_unit_died)
-	_extra_hero_index += 1
-	_refresh_unit_counts()
-	# Sélectionne le nouveau héros pour l'inspecter immédiatement.
-	_deselect_all()
-	_selected_units.append(h)
-	_update_selection_feedback()
+## Délai de convalescence (s) avant la réapparition du héros à la base. RARE :
+## le héros reste indisponible un moment après sa mort (modèle RoK / Call of Dragons).
+const HERO_RESPAWN_TIME: float = 45.0
 
 func _notify(text: String) -> void:
 	print(text)
