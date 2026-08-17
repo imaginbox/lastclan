@@ -457,6 +457,7 @@ func attack_target(target: Node3D) -> void:
 # immédiatement, même si un membre était en train de récolter. (Le suivi continu
 # du _physics_process, lui, évite de casser une récolte en cours.)
 func _move_troop_to_formation() -> void:
+	prune_dead_troop()
 	for i in _troop.size():
 		var u: Node = _troop[i]
 		if not is_instance_valid(u):
@@ -505,6 +506,9 @@ func _physics_process(delta: float) -> void:
 	if hp <= 0:
 		die()
 		return
+	# Nettoie les références de troupe dont l'unité est déjà libérée (morte) :
+	# sinon l'affectation typée ci-dessous lève "invalid previously freed instance".
+	prune_dead_troop()
 	# Mise à jour continue de la formation : chaque membre reste sur sa position
 	# de formation (offset local pivoté par l'orientation du héros).
 	for i in _troop.size():
@@ -566,7 +570,7 @@ func _move(_delta: float) -> void:
 	_anim("Run")
 
 func _attack(_delta: float) -> void:
-	if _attack_target == null:
+	if _attack_target == null or not is_instance_valid(_attack_target):
 		set_state(State.IDLE)
 		return
 	_facing(_attack_target.global_position - global_position)
