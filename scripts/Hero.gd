@@ -215,17 +215,70 @@ func troop_count(kind: int) -> int:
 			n += 1
 	return n
 
-## Construit les offsets de formation autour du héros (cercle compact).
+## Construit les offsets de formation autour du héros.
+## Logique « risque » :
+##  - Soldats présents -> ils forment un anneau RAPPROCHÉ autour du héros (au plus
+##    près, en plein cercle), et les paysans restent DERRIÈRE eux (arc arrière plus
+##    large, protégés des combats).
+##  - UNIQUEMENT des paysans -> ils se forment comme des soldats (anneau complet
+##    autour du héros) car aucun front n'est à protéger.
+## Les spots sont indexés par _troop[i] (même ordre), requis par le rappel.
 func _build_formation_spots() -> void:
 	_formation_spots.clear()
-	var n := _troop.size()
-	var radius: float = 0.0
-	if n > 0:
-		radius = 1.1 + sqrt(float(n)) * 0.35
-	var angle_step := TAU / maxi(n, 1)
-	for i in n:
-		var a := angle_step * float(i)
-		_formation_spots.append(Vector3(cos(a) * radius, 0.0, sin(a) * radius))
+	var troop: Array = _troop
+	var soldier_count := 0
+	for u in troop:
+		if u is Soldier:
+			soldier_count += 1
+	var peasant_count: int = troop.size() - soldier_count
+
+	# Direction avant du héros (sa rotation Y). Si inexistante, repli sur -Z.
+	var fwd := -global_transform.basis.z
+	fwd.y = 0.0
+	var fwd_len := fwd.length()
+	if fwd_len < 0.001:
+		fwd = Vector3.FORWARD
+	else:
+		fwd = fwd / fwd_len
+	var a_fwd := atan2(fwd.z, fwd.x)   # angle du vecteur avant dans le plan XZ
+
+	# UNIQUEMENT des paysans (ou aucune troupe) : anneau rond comme des soldats.
+	if soldier_count == 0:
+		var n := troop.size()
+		var radius: float = 0.0
+		if n > 0:
+			radius = 1.1 + sqrt(float(n)) * 0.35
+		var step := TAU / maxi(n, 1)
+		for i in n:
+			_formation_spots.append(_ring_spot(a_fwd + step * float(i), radius))
+		return
+
+	# FORMATION MIXTE : soldats proches (plein cercle), paysans derrière (arc arrière).
+	var rs: float = 1.1 + sqrt(float(maxi(soldier_count, 1))) * 0.35
+	var s_step := TAU / maxi(soldier_count, 1)
+
+	# Paysans : arc arrière (à l'opposé de l'avant), à un rayon plus grand que
+	# l'anneau des soldats pour rester « derrière eux ».
+	var rp: float = rs + 1.2 + sqrt(float(maxi(peasant_count, 1))) * 0.35
+	var back_center := a_fwd + PI
+	var spread: float = 2.2
+	var p_step := spread / maxi(peasant_count, 1)
+	# Décalage de départ pour centrer l'arc derrière (au milieu des soldats voisins).
+	var p_start := back_center - spread * 0.5
+
+	var s_idx := 0
+	var p_idx := 0
+	for i in troop.size():
+		if troop[i] is Soldier:
+			_formation_spots.append(_ring_spot(a_fwd + s_step * float(s_idx), rs))
+			s_idx += 1
+		else:
+			_formation_spots.append(_ring_spot(p_start + p_step * float(p_idx), rp))
+			p_idx += 1
+
+## Point local (autour du héros) sur un anneau : angle `a` dans le plan XZ, rayon `radius`.
+func _ring_spot(a: float, radius: float) -> Vector3:
+	return Vector3(cos(a) * radius, 0.0, sin(a) * radius)
 
 # ======================================================================
 # FORMATION / MOUVEMENT
