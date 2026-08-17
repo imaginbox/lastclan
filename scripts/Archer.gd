@@ -1,17 +1,19 @@
-class_name Soldier
+class_name Archer
 extends CharacterBody3D
 
-## Soldier — unité de combat entraînée depuis la caserne.
-## États : IDLE (immobile), MOVE (déplacement vers un point ou une cible),
-## ATTACK (combat à portée). Contrôlable comme un paysan (sélection + ordres).
+## Archer — unité de combat À DISTANCE entraînée depuis la caserne.
+## Comme le soldat (sélection + ordres + troupe du héros) mais attaque de loin :
+## il s'arrête à distance et tire une flèche (projectile) qui vole jusqu'à la
+## cible et lui inflige des dégâts. Placé à l'arrière de la formation, il reste
+## protégé derrière les soldats tout en engageant la faune/les ennemis.
 
 enum State { IDLE, MOVE, ATTACK }
 
-const MOVE_SPEED: float = 4.0
+const MOVE_SPEED: float = 3.6
 const REACH_DISTANCE: float = 0.8
-const ATTACK_RANGE: float = 1.6
-const ATTACK_DAMAGE: int = 6
-const ATTACK_COOLDOWN: float = 1.0
+const ATTACK_RANGE: float = 6.0
+const ATTACK_DAMAGE: int = 7
+const ATTACK_COOLDOWN: float = 1.4
 const VILLAGE_HALF: float = 190.0
 
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
@@ -21,12 +23,10 @@ const VILLAGE_HALF: float = 190.0
 
 @onready var anim_player: AnimationPlayer = null
 
-## Santé de l'unité : permet d'être endommagé par d'autres joueurs (combat PvP).
-var hp: int = 80
-var max_hp: int = 80
+## Santé de l'unité : endommageable par les ennemis (faune / PvP).
+var hp: int = 70
+var max_hp: int = 70
 signal died
-## Horodatage (ms) de la dernière fois que l'unité a reçu des dégâts. La barre
-## ne s'affiche que si une frappe a eu lieu récemment (disparaît sans attaques).
 var last_damage_ms: int = -100000
 
 var _state: State = State.IDLE
@@ -35,56 +35,65 @@ var _target: Node3D = null
 var _attack_cd: float = 0.0
 
 func _ready() -> void:
-	# PV et stats configurables via le panneau admin (mode admin).
 	var gc := get_node_or_null("/root/GameConfig")
 	if gc != null:
-		max_hp = int(gc.get_value("unite.soldat.pv"))
-		hp = max_hp
+		var pv = gc.get_value("unite.archer.pv")
+		if pv != null:
+			max_hp = int(pv)
+			hp = max_hp
 	_apply_command_bonus()
-	# Marque le modèle comme soldat (choix du modèle 3D dans le panel admin).
-	var mod := get_node_or_null("Model") as VillagerModel
-	if mod != null:
-		mod.is_soldier = true
-	# AnimationPlayer fourni par le modèle (VillagerModel).
-	var model := get_node_or_null("Model") as VillagerModel
+	var model := get_node_or_null("Model") as Node
 	if model != null:
-		anim_player = model.get_model_anim_player()
+		# Le modèle sait lire son AnimationPlayer (VillagerModel).
+		if model.has_method("get_model_anim_player"):
+			anim_player = model.call("get_model_anim_player")
+		# Arc visible dans la main.
+		_build_bow(model)
 	nav_agent.path_desired_distance = REACH_DISTANCE
 	nav_agent.target_desired_distance = REACH_DISTANCE
-	# Comme le paysan, le soldat ne détecte QUE le sol pour s'y ancrer par gravité
-	# (il traverse arbres/bâtiments). Sans ça il peut dériver verticalement et
-	# paraître "disparaître" lorsqu'on le déplace.
 	collision_mask = 8
 
-## Vitesse configurable (panneau admin) — retombe sur MOVE_SPEED.
+## Petit arc en bois tenu à la main (distingue l'archer du soldat).
+func _build_bow(model: Node) -> void:
+	var bow := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.035
+	cyl.bottom_radius = 0.05
+	cyl.height = 0.7
+	bow.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.5, 0.32, 0.16)
+	bow.material_override = mat
+	bow.position = Vector3(0.22, 0.95, 0.05)
+	bow.rotation_degrees.z = 15.0
+	model.add_child(bow)
+
+## Vitesse configurable.
 func _move_speed() -> float:
 	var gc := get_node_or_null("/root/GameConfig")
 	var base: float = MOVE_SPEED
 	if gc != null:
-		base = float(gc.get_value("unite.soldat.vitesse"))
+		var v = gc.get_value("unite.archer.vitesse")
+		if v != null:
+			base = float(v)
 	var mult: float = _speed_mult()
-	# Pendant le rappel de formation, on court AU MOINS aussi vite que le héros
-	# (x1.2) pour le rattraper et finir en position autour de lui. Sans ça, si le
-	# héros est plus rapide que base*mult, la troupe reste à la traîne à jamais.
 	if _following_hero and command_hero != null and is_instance_valid(command_hero):
 		return maxf(base * mult, command_hero.call("command_follow_speed"))
 	return base * mult
 
-## Dégâts configurable.
 func _atk_damage() -> int:
 	var gc := get_node_or_null("/root/GameConfig")
 	var base: int = ATTACK_DAMAGE
 	if gc != null:
-		base = int(gc.get_value("unite.soldat.degats"))
+		var v = gc.get_value("unite.archer.degats")
+		if v != null:
+			base = int(v)
 	if command_hero != null and is_instance_valid(command_hero):
 		return int(float(base) * command_hero.call("command_attack_mult"))
 	return base
 
 ## Héros commandant cette unité — null = unité libre.
 var command_hero: Node = null
-
-## True quand le héros rappelle cette unité en formation : elle court plus vite
-## pour pouvoir se replacer AUTOUR du héros (devant lui) pendant son déplacement.
 var _following_hero: bool = false
 
 func _speed_mult() -> float:
@@ -98,7 +107,9 @@ func _apply_command_bonus() -> void:
 	var base_hp: int = max_hp
 	var gc := get_node_or_null("/root/GameConfig")
 	if gc != null:
-		base_hp = int(gc.get_value("unite.soldat.pv"))
+		var pv = gc.get_value("unite.archer.pv")
+		if pv != null:
+			base_hp = int(pv)
 	var mult: float = 1.0
 	if command_hero != null and is_instance_valid(command_hero):
 		mult = command_hero.call("command_hp_mult")
@@ -110,21 +121,22 @@ func notify_command(hero: Node) -> void:
 	command_hero = hero
 	_apply_command_bonus()
 
-## Portée configurable.
 func _atk_range() -> float:
 	var gc := get_node_or_null("/root/GameConfig")
 	if gc != null:
-		return float(gc.get_value("unite.soldat.portee"))
+		var v = gc.get_value("unite.archer.portee")
+		if v != null:
+			return float(v)
 	return ATTACK_RANGE
 
-## Cadence d'attaque configurable.
 func _atk_cd() -> float:
 	var gc := get_node_or_null("/root/GameConfig")
 	if gc != null:
-		return float(gc.get_value("unite.soldat.cadence"))
+		var v = gc.get_value("unite.archer.cadence")
+		if v != null:
+			return float(v)
 	return ATTACK_COOLDOWN
 
-## Gravité configurable (panneau admin, jeu.gravite, défaut -20) — positive au sol.
 func _gravity() -> float:
 	var gc := get_node_or_null("/root/GameConfig")
 	if gc != null:
@@ -133,8 +145,6 @@ func _gravity() -> float:
 
 func _physics_process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
-	# GRAVITÉ : plaquer le soldat au sol (comme le paysan). Sans elle le corps
-	# peut dériver verticalement pendant le déplacement et sembler disparaître.
 	if not is_on_floor():
 		velocity.y -= _gravity() * delta
 	else:
@@ -150,15 +160,14 @@ func _physics_process(delta: float) -> void:
 			_anim(anim_idle)
 			_attack(delta)
 
-## --- API publique ---
-## Se déplace vers un point du sol.
+# ============================================================ API PUBLIQUE
+
 func move_to_point(point: Vector3) -> void:
 	_target = null
 	_move_point = Vector3(point.x, 0.0, point.z)
 	nav_agent.target_position = _move_point
 	_state = State.MOVE
 
-## Attaque une cible (nœud avec take_damage).
 func attack_target(target: Node3D) -> void:
 	_following_hero = false
 	_target = target
@@ -166,8 +175,7 @@ func attack_target(target: Node3D) -> void:
 	nav_agent.target_position = target.global_position
 
 func set_selected(on: bool) -> void:
-	# Met en évidence le modèle via une émission (contour lumineux).
-	var model := get_node_or_null("Model") as VillagerModel
+	var model := get_node_or_null("Model") as Node
 	if model == null:
 		return
 	var mesh := model.find_child("char1", true, false) as MeshInstance3D
@@ -179,21 +187,14 @@ func set_selected(on: bool) -> void:
 			and _is_sel_material(mesh.material_override):
 		mesh.material_override = null
 
-## DÉFENSE AUTO : quand le soldat est attaqué, il CONTRE-ATTAQUE l'unité ennemie
-## la plus proche (via la position de l'attaquant). S'il n'y a plus d'ennemi à
-## portée notable, il retourne au repos. Déclenché depuis main.gd (côté défenseur).
 func react_to_attack(attacker_pos: Vector3) -> void:
 	var closest: Node3D = _nearest_enemy(attacker_pos)
 	if closest != null:
 		attack_target(closest)
 	else:
-		# Plus d'ennemi visible : retour au repos.
 		_target = null
 		_state = State.IDLE
 
-## Cherche l'unité ennemie (groupe "enemy") la plus proche de ce soldat, en
-## privilégiant celle la plus proche de l'ATTAQUANT (pour bien riposter celui
-## qui nous a frappé).
 func _nearest_enemy(attacker_pos: Vector3 = Vector3.ZERO) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = INF
@@ -209,7 +210,8 @@ func _nearest_enemy(attacker_pos: Vector3 = Vector3.ZERO) -> Node3D:
 				best = node as Node3D
 	return best
 
-## --- Logique ---
+# ============================================================ LOGIQUE
+
 func _move(delta: float) -> void:
 	if _target != null and is_instance_valid(_target):
 		nav_agent.target_position = _target.global_position
@@ -222,10 +224,6 @@ func _move(delta: float) -> void:
 		return
 	_step(delta)
 
-## Distance horizontale (plan XZ) à un point — utilisée par le héros pour
-## ré-aiguiller en continu la troupe (chaque membre vers sa position de formation).
-## Sans cette méthode, les soldats ne sont JAMAIS ré-aimés par _physics_process du
-## héros et restent à la traîne une fois leur 1er ordre terminé.
 func _hdist(pt: Vector3) -> float:
 	var dx: float = pt.x - global_position.x
 	var dz: float = pt.z - global_position.z
@@ -239,9 +237,21 @@ func _attack(_delta: float) -> void:
 	if global_position.distance_to(_target.global_position) > _atk_range():
 		_state = State.MOVE
 		return
-	if _attack_cd <= 0.0 and _target.has_method("take_damage"):
-		_target.call("take_damage", _atk_damage(), self.global_position)
+	_facing(global_position.direction_to(_target.global_position))
+	if _attack_cd <= 0.0:
+		_fire_arrow()
 		_attack_cd = _atk_cd()
+
+## Tire une flèche vers la cible (dégâts appliqués à l'arrivée).
+func _fire_arrow() -> void:
+	if _target == null or not is_instance_valid(_target):
+		return
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var arrow := Arrow.new()
+	scene.add_child(arrow)
+	arrow.setup(global_position + Vector3(0, 1.1, 0), _target, _atk_damage())
 
 func _step(_delta: float) -> void:
 	var target := nav_agent.target_position
@@ -255,8 +265,6 @@ func _step(_delta: float) -> void:
 	else:
 		velocity = Vector3.ZERO
 	move_and_slide()
-	# On reste dans la zone jouable autour de la base — sauf si on suit le héros
-	# (sinon le soldat serait bloqué à la limite pendant une expédition).
 	if not _following_hero:
 		var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
 		global_position.x = clampf(global_position.x, base.x - VILLAGE_HALF, base.x + VILLAGE_HALF)
@@ -274,21 +282,20 @@ var _sel_material: StandardMaterial3D = null
 func _sel_mat() -> StandardMaterial3D:
 	if _sel_material == null:
 		_sel_material = StandardMaterial3D.new()
-		_sel_material.albedo_color = Color(0.85, 0.2, 0.2)
+		_sel_material.albedo_color = Color(0.3, 0.8, 0.3)
 		_sel_material.emission_enabled = true
-		_sel_material.emission = Color(0.9, 0.3, 0.3)
+		_sel_material.emission = Color(0.3, 0.9, 0.3)
 		_sel_material.emission_energy = 2.0
 	return _sel_material
 
 func _is_sel_material(mat: Material) -> bool:
 	return mat == _sel_material
 
-## --- Santé / Combat PvP ---
-## Reçoit des dégâts d'une unité adverse. Meurt quand la santé tombe à 0.
+# ============================================================ SANTÉ / COMBAT
+
 func take_damage(amount: int, attacker_pos: Vector3 = Vector3.ZERO) -> void:
 	hp -= amount
 	last_damage_ms = Time.get_ticks_msec()
-	# Défense auto : le soldat contre-attaque l'ennemi le plus proche.
 	react_to_attack(attacker_pos)
 	if hp <= 0:
 		die()

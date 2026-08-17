@@ -13,7 +13,9 @@ extends Node3D
 const VILLAGER_SCENE := preload("res://scenes/Villager.tscn")
 const RESOURCE_SCENE := preload("res://scenes/ResourceNode.tscn")
 const SOLDIER_SCENE := preload("res://scenes/Soldier.tscn")
+const ARCHER_SCENE := preload("res://scenes/Archer.tscn")
 const HERO_SCENE := preload("res://scenes/Hero.tscn")
+const MONSTER_SCENE := preload("res://scenes/Monster.tscn")
 const DecorScript := preload("res://scripts/Decor.gd")
 const FLOAT_TEXT_SCENE := preload("res://scripts/FloatingText.gd")
 
@@ -33,6 +35,9 @@ var _rebake_timer: Timer = null
 @onready var building_root: Node3D = $Buildings
 @onready var resource_root: Node3D = $Resources
 @onready var decor_root: Node3D = $Decor
+
+## Racine des créatures PvE (faune hostile) générées sur la carte.
+var _wildlife_root: Node3D = null
 
 var _camera: Camera3D = null
 var _selected_units: Array[Node] = []
@@ -87,6 +92,7 @@ var _troop_title: Label = null
 var _troop_info: Label = null
 var _troop_worker_label: Label = null
 var _troop_soldier_label: Label = null
+var _troop_archer_label: Label = null
 var _unit_role_lbl: Label = null
 var _unit_hp_lbl: Label = null
 var _unit_state_lbl: Label = null
@@ -183,6 +189,7 @@ var _building_title: Label = null
 var _building_info: Label = null
 var _upgrade_button: Button = null
 var _train_button: Button = null
+var _train_archer_button: Button = null
 var _recruit_button: Button = null
 var _move_button: Button = null
 
@@ -202,6 +209,10 @@ func _ready() -> void:
 	_setup_build_ui()
 	_setup_building_panel()
 	_setup_order_button()
+	# Racine des créatures PvE (créée en code, pas dans la scène).
+	_wildlife_root = Node3D.new()
+	_wildlife_root.name = "Wildlife"
+	add_child(_wildlife_root)
 	# Les messages de chat reçus d'autres joueurs s'affichent en jeu (toast).
 	_connect_chat_toasts()
 	# Applique une première fois le layout selon l'orientation détectée.
@@ -262,6 +273,7 @@ func _spawn_world() -> void:
 	if not Lobby.is_dedicated_server:
 		_spawn_initial_buildings()
 		_spawn_villagers()
+		_spawn_wildlife()
 	_spawn_decor()
 	# Les ressources initiales ont été posées AVANT les bâtiments (la garde
 	# _near_building ne voyait pas encore les constructions) : on les écarte à
@@ -291,6 +303,8 @@ func _clear_world() -> void:
 	_clear_root(decor_root)
 	_clear_root(building_root)
 	_clear_root(villager_root)
+	if _wildlife_root != null:
+		_clear_root(_wildlife_root)
 	if _remote_units != null:
 		_clear_root(_remote_units)
 	if _remote_building_root != null:
@@ -780,10 +794,12 @@ func _spawn_villagers() -> void:
 	var v: Node3D = VILLAGER_SCENE.instantiate()
 	villager_root.add_child(v)
 	v.global_position = _base_origin + Vector3(-2.0, 0.0, 0.0)
+	v.add_to_group("player")
 	_add_local_unit_visuals(v)
 	var v2: Node3D = VILLAGER_SCENE.instantiate()
 	villager_root.add_child(v2)
 	v2.global_position = _base_origin + Vector3(-6.0, 0.0, -6.0)
+	v2.add_to_group("player")
 	_add_local_unit_visuals(v2)
 	_add_default_task(v)
 	_add_default_task(v2)
@@ -796,10 +812,58 @@ func _spawn_hero() -> void:
 	# Spot ouvert, bien visible à côté du village (PAS sous l'HDV).
 	h.global_position = _base_origin + Vector3(4.0, 0.0, 3.0)
 	h.add_to_group("hero")
+	h.add_to_group("player")
 	h.call("set_selected", true)
 	# Cercle au sol DORÉ distinct + barre de vie, pour bien repérer le héros.
 	h.add_child(_make_ground_circle(Color(1.0, 0.82, 0.15)))
 	h.add_child(_make_health_bar_node())
+
+## Génère la faune hostile (PvE) sur la carte, hors de la zone du village.
+func _spawn_wildlife() -> void:
+	var types: Array = [Monster.Type.WOLF, Monster.Type.BOAR, Monster.Type.BEAR]
+	for i in 8:
+		var m: Node3D = MONSTER_SCENE.instantiate()
+		# Type et position AVANT add_child : _ready construit le bon modèle/stats.
+		m.set("type", types[i % types.size()])
+		m.position = _random_wildlife_pos()
+		_wildlife_root.add_child(m)
+		m.add_to_group("enemy")
+		# Cercle rouge (ennemi) + barre de vie, comme les autres unités.
+		m.add_child(_make_ground_circle(Color(0.9, 0.2, 0.15)))
+		m.add_child(_make_health_bar_node())
+		m.died.connect(_on_wildlife_died)
+
+## Position de la faune : assez loin du village pour ne pas agresser les paysans
+## dès le départ, mais dans la zone jouable.
+func _random_wildlife_pos() -> Vector3:
+	for attempt in 30:
+		var pos := _random_free_world_pos()
+		if pos.distance_to(_base_origin) >= 20.0:
+			return pos
+	return Vector3(_base_origin.x + 30.0, 0.0, _base_origin.z + 30.0)
+
+## Butin à la mort d'une créature : crédite les ressources du joueur + texte.
+func _on_wildlife_died(monster: Node) -> void:
+	var total := 0
+	for entry in monster.loot():
+		var res: String = entry[0]
+		var qty: int = entry[1]
+		total += qty
+		match res:
+			"wood": ResourceManager.add_wood(qty)
+			"stone": ResourceManager.add_stone(qty)
+			"food": ResourceManager.add_food(qty)
+			"gold": ResourceManager.add_gold(qty)
+		show_float_text(monster.global_position + Vector3(0, 1.5, 0), "+%d" % qty, _loot_color(res))
+	_notify("Faune vaincue ! +%d ressources" % total)
+
+func _loot_color(res: String) -> Color:
+	match res:
+		"wood": return Color(0.72, 0.5, 0.22)
+		"stone": return Color(0.65, 0.65, 0.7)
+		"food": return Color(0.85, 0.6, 0.25)
+		"gold": return Color(1.0, 0.82, 0.2)
+	return Color.WHITE
 
 func _add_default_task(villager: Node3D) -> void:
 	var rn := _nearest_resource_node(villager.global_position)
@@ -896,11 +960,19 @@ func _on_unit_requested(unit_type: int) -> void:
 		var s: Node3D = SOLDIER_SCENE.instantiate()
 		villager_root.add_child(s)
 		s.global_position = spawn_pos
+		s.add_to_group("player")
 		_add_local_unit_visuals(s)
+	elif unit_type == Building.Unit.ARCHER:
+		var a: Node3D = ARCHER_SCENE.instantiate()
+		villager_root.add_child(a)
+		a.global_position = spawn_pos
+		a.add_to_group("player")
+		_add_local_unit_visuals(a)
 	else:
 		var v: Node3D = VILLAGER_SCENE.instantiate()
 		villager_root.add_child(v)
 		v.global_position = spawn_pos
+		v.add_to_group("player")
 		_add_local_unit_visuals(v)
 		_add_default_task(v)
 	_refresh_unit_counts()
@@ -1179,6 +1251,16 @@ func _update_all_local_health_bars() -> void:
 				var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
 				var ld: int = int(child.get("last_damage_ms")) if child.get("last_damage_ms") != null else -100000
 				_update_health_bar(hb, hp, mh, ld)
+	# Barres de vie de la faune hostile (PvE).
+	if _wildlife_root != null:
+		for child in _wildlife_root.get_children():
+			if child is CharacterBody3D and child.has_method("take_damage"):
+				var hb := child.get_node_or_null("HealthBar") as Node3D
+				if hb != null:
+					var hp: float = float(child.get("hp")) if child.get("hp") != null else 100.0
+					var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
+					var ld: int = int(child.get("last_damage_ms")) if child.get("last_damage_ms") != null else -100000
+					_update_health_bar(hb, hp, mh, ld)
 
 ## Crée une unité distante avec le VRAI modèle (paysan/soldat) + cercle rouge + barre de vie.
 func _make_remote_unit(owner_id: int, index: int, kind: int) -> RemoteUnit:
@@ -1760,9 +1842,7 @@ func _order_action(screen_pos: Vector2, mode: int = OrderMode.NONE) -> void:
 	# Sol : déplacement.
 	var ground := _ground_point(screen_pos)
 	if ground.has("pos"):
-		for u in _selected_units:
-			if u.has_method("move_to_point"):
-				u.move_to_point(ground["pos"])
+		_move_selected(ground["pos"])
 
 ## MODE DÉPLACEMENT : le groupe se rend au point cliqué, quoi qu'il y ait dessus
 ## (ressource, ennemi, décor). On ne récolte/attaque pas.
@@ -1770,9 +1850,31 @@ func _execute_move_order(screen_pos: Vector2) -> void:
 	var ground := _ground_point(screen_pos)
 	if not ground.has("pos"):
 		return
+	_move_selected(ground["pos"])
+
+## Déplace la sélection. Si un HÉROS est sélectionné, il emmène SA TROUPE en
+## formation : les membres de la troupe SUIVENT le héros (pas d'ordre individuel
+## vers le point cliqué), pour qu'à chaque déplacement la troupe finisse autour de
+## lui au lieu de partir en vrac. Les autres unités sélectionnées se déplacent
+## normalement.
+func _move_selected(ground_pos: Vector3) -> void:
+	var heroes: Array[Node] = []
 	for u in _selected_units:
+		if u is Hero:
+			heroes.append(u)
+	for u in _selected_units:
+		if u is Hero:
+			u.move_to_point(ground_pos)
+			continue
+		var in_troop := false
+		for h in heroes:
+			if h.has_method("troop_has") and h.call("troop_has", u):
+				in_troop = true
+				break
+		if in_troop:
+			continue  # suit le héros en formation, pas d'ordre individuel
 		if u.has_method("move_to_point"):
-			u.move_to_point(ground["pos"])
+			u.move_to_point(ground_pos)
 
 ## MODE RÉCOLTE : le groupe récolte la ressource au point cliqué ; sinon la
 ## ressource la plus proche de ce point. Soldats sélectionnés : ignorés.
@@ -1878,7 +1980,7 @@ func _raycast(screen_pos: Vector2) -> Dictionary:
 func _unit_at(node: Node) -> Node:
 	var cur: Node = node
 	while cur != null:
-		if cur is Hero or cur is Villager or cur is Soldier:
+		if cur is Hero or cur is Villager or cur is Soldier or cur is Archer:
 			return cur
 		cur = cur.get_parent()
 	return null
@@ -2247,7 +2349,7 @@ func _refresh_unit_counts() -> void:
 			heroes += 1
 		elif child is Villager:
 			workers += 1
-		elif child is Soldier:
+		elif child is Soldier or child is Archer:
 			soldiers += 1
 	if _hud_workers_label != null:
 		_hud_workers_label.text = "Travailleurs : %d" % workers
@@ -2384,6 +2486,13 @@ func _refresh_inspector() -> void:
 			Soldier.State.ATTACK: state_str = "Combat"
 			Soldier.State.MOVE: state_str = "Se déplace"
 			_: state_str = "En attente (idle)"
+	elif u is Archer:
+		role = "Archer"
+		hp_str = "Vie : %d / %d" % [u.hp, u.max_hp]
+		match int(u._state):
+			Archer.State.ATTACK: state_str = "Tire"
+			Archer.State.MOVE: state_str = "Se déplace"
+			_: state_str = "En attente (idle)"
 	else:
 		_unit_panel.visible = false
 		return
@@ -2415,6 +2524,7 @@ func _refresh_troop_panel() -> void:
 	var cap: int = h.call("troop_capacity")
 	var workers: int = h.call("troop_count", Hero.UnitKind.VILLAGER)
 	var soldiers: int = h.call("troop_count", Hero.UnitKind.SOLDIER)
+	var archers: int = h.call("troop_count", Hero.UnitKind.ARCHER)
 	var size: int = h.call("troop_size")
 	_troop_title.text = "Héros (niv. %d) — %d/%d troupes" % [h.level, size, cap]
 	# Bonus de commandement (dégâts de la troupe).
@@ -2423,8 +2533,10 @@ func _refresh_troop_panel() -> void:
 	# Unités libres disponibles dans le village (non assignées à ce héros).
 	var free_workers := _count_free_units(Hero.UnitKind.VILLAGER, h)
 	var free_soldiers := _count_free_units(Hero.UnitKind.SOLDIER, h)
+	var free_archers := _count_free_units(Hero.UnitKind.ARCHER, h)
 	_troop_worker_label.text = "Paysans : %d  (dispo %d)" % [workers, free_workers]
 	_troop_soldier_label.text = "Soldats : %d  (dispo %d)" % [soldiers, free_soldiers]
+	_troop_archer_label.text = "Archers : %d  (dispo %d)" % [archers, free_archers]
 
 ## Compte les unités du type donné non encore assignées à [hero].
 func _count_free_units(kind: int, hero: Node) -> int:
@@ -2434,6 +2546,9 @@ func _count_free_units(kind: int, hero: Node) -> int:
 			if not (hero.has_method("troop_has") and hero.call("troop_has", child)):
 				n += 1
 		elif kind == Hero.UnitKind.SOLDIER and child is Soldier:
+			if not (hero.has_method("troop_has") and hero.call("troop_has", child)):
+				n += 1
+		elif kind == Hero.UnitKind.ARCHER and child is Archer:
 			if not (hero.has_method("troop_has") and hero.call("troop_has", child)):
 				n += 1
 	return n
@@ -2490,6 +2605,31 @@ func _on_troop_soldier_dec() -> void:
 	h.call("unassign_unit", u)
 	_refresh_troop_panel()
 
+func _on_troop_archer_inc() -> void:
+	if _troop_hero == null:
+		return
+	var h: Node = _troop_hero
+	if not h.call("has_space"):
+		_notify("Troupe pleine (capacité %d)." % h.call("troop_capacity"))
+		return
+	var target := _find_free_unit(Hero.UnitKind.ARCHER, h)
+	if target == null:
+		_notify("Aucun archer libre disponible.")
+		return
+	h.call("assign_unit", target)
+	_refresh_troop_panel()
+
+func _on_troop_archer_dec() -> void:
+	if _troop_hero == null:
+		return
+	var h: Node = _troop_hero
+	var u: Node = _last_troop_unit(h, Hero.UnitKind.ARCHER)
+	if u == null:
+		_notify("Aucun archer dans la troupe.")
+		return
+	h.call("unassign_unit", u)
+	_refresh_troop_panel()
+
 ## Trouve une unité libre du type donné pour l'assigner au héros.
 ## Si [hero] est null, toute unité du type compte comme libre.
 func _find_free_unit(kind: int, hero: Node) -> Node:
@@ -2501,6 +2641,8 @@ func _find_free_unit(kind: int, hero: Node) -> Node:
 			if kind == Hero.UnitKind.VILLAGER and child is Villager:
 				return child
 			elif kind == Hero.UnitKind.SOLDIER and child is Soldier:
+				return child
+			elif kind == Hero.UnitKind.ARCHER and child is Archer:
 				return child
 	return null
 
@@ -3007,6 +3149,27 @@ func _build_troop_panel(layer: CanvasLayer) -> void:
 	splus.pressed.connect(_on_troop_soldier_inc)
 	srow.add_child(splus)
 	tv.add_child(srow)
+	# Ligne archer : libellé + stepper.
+	var arow := HBoxContainer.new()
+	arow.add_theme_constant_override("separation", int(6 * _ui_scale))
+	_troop_archer_label = Label.new()
+	_troop_archer_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_troop_archer_label.add_theme_font_size_override("font_size", int(15 * _ui_scale))
+	_troop_archer_label.add_theme_color_override("font_color", Color(0.6, 0.95, 0.6))
+	arow.add_child(_troop_archer_label)
+	var aminus := Button.new()
+	aminus.text = "−"
+	aminus.custom_minimum_size = Vector2(34 * _ui_scale, 34 * _ui_scale)
+	_stylize_coc_button(aminus)
+	aminus.pressed.connect(_on_troop_archer_dec)
+	arow.add_child(aminus)
+	var aplus := Button.new()
+	aplus.text = "+"
+	aplus.custom_minimum_size = Vector2(34 * _ui_scale, 34 * _ui_scale)
+	_stylize_coc_button(aplus)
+	aplus.pressed.connect(_on_troop_archer_inc)
+	arow.add_child(aplus)
+	tv.add_child(arow)
 	# Bouton conversion paysan -> soldat.
 	var conv := Button.new()
 	conv.text = "⚔ Convertir un paysan en soldat"
@@ -3306,6 +3469,13 @@ func _setup_building_panel() -> void:
 	_stylize_coc_button(_train_button)
 	_train_button.pressed.connect(_on_train_pressed)
 	vb.add_child(_train_button)
+	_train_archer_button = Button.new()
+	_train_archer_button.text = "Entraîner un archer"
+	_train_archer_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
+	_train_archer_button.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_stylize_coc_button(_train_archer_button)
+	_train_archer_button.pressed.connect(_on_train_archer_pressed)
+	vb.add_child(_train_archer_button)
 	_move_button = Button.new()
 	_move_button.text = "Déplacer"
 	_move_button.custom_minimum_size = Vector2(0, 40 * _ui_scale)
@@ -3327,6 +3497,8 @@ func _refresh_building_panel() -> void:
 	if b.is_trainer():
 		var tc := b.get_train_cost()
 		info += "Entraîner : %d or, %d bois, %d pop\n" % [tc["gold"], tc["wood"], tc["pop"]]
+		var ac := b.get_archer_cost()
+		info += "Archer : %d or, %d bois, %d pop\n" % [ac["gold"], ac["wood"], ac["pop"]]
 	if b.type == Building.Type.HOUSE:
 		info += "Logement : +%d pop\n" % b.population_provided()
 	if b.is_producer():
@@ -3358,6 +3530,7 @@ func _refresh_building_panel() -> void:
 		_upgrade_button.disabled = false
 	_recruit_button.visible = b.is_recruiter()
 	_train_button.visible = b.is_trainer()
+	_train_archer_button.visible = b.is_trainer()
 	_move_button.visible = true
 
 func _on_upgrade_pressed() -> void:
@@ -3375,6 +3548,10 @@ func _on_recruit_pressed() -> void:
 func _on_train_pressed() -> void:
 	if _selected_building != null:
 		_selected_building.try_train_soldier()
+
+func _on_train_archer_pressed() -> void:
+	if _selected_building != null:
+		_selected_building.try_train_archer()
 
 func _on_move_pressed() -> void:
 	if _selected_building == null:

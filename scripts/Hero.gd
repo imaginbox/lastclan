@@ -31,7 +31,7 @@ const COMMAND_BONUS_PER_LEVEL: float = 0.10   # +10% / niveau de héros
 # Contribution du bonus par niveau d'HDV (progression A).
 const HDV_BONUS_PER_LEVEL: float = 0.04       # +4% / niveau d'HDV
 
-enum UnitKind { VILLAGER, SOLDIER }
+enum UnitKind { VILLAGER, SOLDIER, ARCHER }
 enum ProfileKind { COMMANDER, GATHERER, STRATEGIST }
 
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
@@ -160,6 +160,13 @@ func command_speed_mult() -> float:
 func command_follow_speed_mult() -> float:
 	return FOLLOW_SPEED_MULT
 
+## Vitesse ABSOLUE de suivi de la troupe pendant le rappel de formation : toujours
+## supérieure à la vitesse du héros (x1.2) pour que la troupe le RATTRAPE et finisse
+## sa position autour de lui — quelles que soient les vitesses configurées (le
+## multiplicateur 1.5 ne suffit pas si le héros est plus rapide que base*1.5).
+func command_follow_speed() -> float:
+	return _move_speed() * 1.2
+
 func _town_hall() -> Node:
 	if not is_inside_tree():
 		return null
@@ -218,6 +225,8 @@ func troop_count(kind: int) -> int:
 		if kind == UnitKind.VILLAGER and u is Villager:
 			n += 1
 		elif kind == UnitKind.SOLDIER and u is Soldier:
+			n += 1
+		elif kind == UnitKind.ARCHER and u is Archer:
 			n += 1
 	return n
 
@@ -316,7 +325,7 @@ func attack_target(target: Node3D) -> void:
 	set_state(State.MOVING_TO_ATTACK)
 	# La troupe combat aussi.
 	for u in _troop:
-		if u is Soldier and u.has_method("attack_target"):
+		if (u is Soldier or u is Archer) and u.has_method("attack_target"):
 			u.attack_target(target)
 
 ## La troupe suit le héros : on place le point de navigation de chaque membre sur

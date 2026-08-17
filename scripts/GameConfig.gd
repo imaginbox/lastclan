@@ -68,6 +68,18 @@ const REGISTRY: Array = [
 	{"key": "unite.soldat.cadence", "kind": Kind.FLOAT, "cat": "Soldat", "sub": "Combat & survie",
 	 "label": "Cadence d'attaque (s)", "def": 1.0, "min": 0.1, "max": 10.0, "step": 0.1},
 
+	# --------------------------- UNITÉS ARCHER -----------------------------
+	{"key": "unite.archer.vitesse", "kind": Kind.FLOAT, "cat": "Archer", "sub": "Déplacement",
+	 "label": "Vitesse de l'archer", "def": 3.6, "min": 0.5, "max": 20.0, "step": 0.1},
+	{"key": "unite.archer.pv", "kind": Kind.INT, "cat": "Archer", "sub": "Combat & survie",
+	 "label": "Points de vie de l'archer", "def": 70, "min": 1, "max": 1000},
+	{"key": "unite.archer.degats", "kind": Kind.INT, "cat": "Archer", "sub": "Combat & survie",
+	 "label": "Dégâts de l'archer", "def": 7, "min": 0, "max": 300},
+	{"key": "unite.archer.portee", "kind": Kind.FLOAT, "cat": "Archer", "sub": "Combat & survie",
+	 "label": "Portée de l'archer", "def": 6.0, "min": 0.1, "max": 30.0, "step": 0.1},
+	{"key": "unite.archer.cadence", "kind": Kind.FLOAT, "cat": "Archer", "sub": "Combat & survie",
+	 "label": "Cadence d'attaque (s)", "def": 1.4, "min": 0.1, "max": 10.0, "step": 0.1},
+
 	# ------------------------------- HÉROS ---------------------------------
 	{"key": "hero.pv", "kind": Kind.INT, "cat": "Héros", "sub": "Caractéristiques",
 	 "label": "Points de vie du héros", "def": 150, "min": 1, "max": 5000},
@@ -320,6 +332,11 @@ const PARAM_DESC: Dictionary = {
 	"unite.soldat.degats": "Dégâts infligés par attaque du soldat.",
 	"unite.soldat.portee": "Distance d'attaque du soldat (cases).",
 	"unite.soldat.cadence": "Délai entre deux attaques du soldat (s).",
+	"unite.archer.vitesse": "Vitesse de déplacement de l'archer (cases/s).",
+	"unite.archer.pv": "Points de vie maximum de l'archer.",
+	"unite.archer.degats": "Dégâts infligés par flèche de l'archer.",
+	"unite.archer.portee": "Distance d'attaque de l'archer (cases).",
+	"unite.archer.cadence": "Délai entre deux tirs de l'archer (s).",
 	"hero.pv": "Points de vie maximum du héros.",
 	"hero.degats": "Dégâts infligés par attaque du héros.",
 	"hero.vitesse": "Vitesse de déplacement du héros.",

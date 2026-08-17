@@ -132,7 +132,12 @@ func _move_speed() -> float:
 	var base: float = MOVE_SPEED
 	if gc != null:
 		base = float(gc.get_value("unite.paysan.vitesse"))
-	return base * _speed_mult()
+	var mult: float = _speed_mult()
+	# Pendant le rappel de formation, on court AU MOINS aussi vite que le héros
+	# (x1.2) pour le rattraper et finir en position autour de lui.
+	if _following_hero and command_hero != null and is_instance_valid(command_hero):
+		return maxf(base * mult, command_hero.call("command_follow_speed"))
+	return base * mult
 
 ## Temps de récolte configurable (panneau admin).
 func _gather_time() -> float:
@@ -654,9 +659,13 @@ func _apply_movement(vel: Vector3) -> void:
 	
 	move_and_slide()
 	
-	var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
-	global_position.x = clampf(global_position.x, base.x - VILLAGE_HALF - 2.0, base.x + VILLAGE_HALF + 2.0)
-	global_position.z = clampf(global_position.z, base.z - VILLAGE_HALF - 2.0, base.z + VILLAGE_HALF + 2.0)
+	# Le clamp "rester au village" ne s'applique que si le paysan N'est PAS en
+	# train de suivre son héros : sinon il serait bloqué à la limite de la base
+	# dès que le héros part en expédition hors de la zone (± VILLAGE_HALF).
+	if not _following_hero:
+		var base: Vector3 = Lobby.base_origin if Lobby.has_base else Vector3.ZERO
+		global_position.x = clampf(global_position.x, base.x - VILLAGE_HALF - 2.0, base.x + VILLAGE_HALF + 2.0)
+		global_position.z = clampf(global_position.z, base.z - VILLAGE_HALF - 2.0, base.z + VILLAGE_HALF + 2.0)
 
 func _facing(dir: Vector3) -> void:
 	if dir.length_squared() > 0.0001:

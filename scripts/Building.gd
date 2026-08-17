@@ -15,7 +15,7 @@ signal building_changed
 signal removed(cell: Vector2i)
 
 enum Type { TOWN_HALL, BARRACKS, HOUSE, TOWER, FERME, CARRIERE, MINE_OR }
-enum Unit { VILLAGER, SOLDIER }
+enum Unit { VILLAGER, SOLDIER, ARCHER }
 
 ## --- Configuration Stratégique ---
 const TYPES := {
@@ -404,6 +404,29 @@ func try_train_soldier() -> bool:
 		rm.add_wood(cost["wood"])
 		return false
 	unit_requested.emit(int(Unit.SOLDIER))
+	return true
+
+## La caserne entraîne un archer (unité à distance).
+func get_archer_cost() -> Dictionary:
+	if not is_trainer():
+		return {}
+	var gold: int = _cfg().get("archer_gold", 60) - (level - 1) * 5
+	return { "gold": maxi(gold, 10), "wood": _cfg().get("archer_wood", 20), "pop": _cfg().get("archer_pop", 1) }
+func get_archer_time() -> float:
+	var base: float = _cfg().get("archer_time", 5.0)
+	return maxf(base * pow(0.85, level - 1), 1.0)
+func try_train_archer() -> bool:
+	if not is_trainer():
+		return false
+	var cost := get_archer_cost()
+	var rm := get_node("/root/ResourceManager")
+	if not rm.spend(cost["gold"], cost["wood"]):
+		return false
+	if not rm.change_population(cost["pop"]):
+		rm.add_gold(cost["gold"])
+		rm.add_wood(cost["wood"])
+		return false
+	unit_requested.emit(int(Unit.ARCHER))
 	return true
 
 ## La tour inflige des dégâts (pour les futurs ennemis).
