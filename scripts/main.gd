@@ -16,6 +16,7 @@ const SOLDIER_SCENE := preload("res://scenes/Soldier.tscn")
 const ARCHER_SCENE := preload("res://scenes/Archer.tscn")
 const HERO_SCENE := preload("res://scenes/Hero.tscn")
 const MONSTER_SCENE := preload("res://scenes/Monster.tscn")
+const ENEMY_OUTPOST_SCENE := preload("res://scenes/EnemyOutpost.tscn")
 const DecorScript := preload("res://scripts/Decor.gd")
 const FLOAT_TEXT_SCENE := preload("res://scripts/FloatingText.gd")
 
@@ -285,6 +286,7 @@ func _spawn_world() -> void:
 		_spawn_initial_buildings()
 		_spawn_villagers()
 		_spawn_wildlife()
+		_spawn_enemy_outpost()
 	_spawn_decor()
 	# Les ressources initiales ont été posées AVANT les bâtiments (la garde
 	# _near_building ne voyait pas encore les constructions) : on les écarte à
@@ -886,6 +888,49 @@ func _loot_color(res: String) -> Color:
 		"gold": return Color(1.0, 0.82, 0.2)
 	return Color.WHITE
 
+## Génère un avant-poste ennemi (base rivale à piller) + ses gardes, loin du
+## village. Le cœur (EnemyOutpost) et les gardes sont dans le groupe "enemy" :
+## on peut les attaquer au clic droit / A-Move comme la faune.
+func _spawn_enemy_outpost() -> void:
+	var pos := Vector3(_base_origin.x + 58.0, 0.0, _base_origin.z + 36.0)
+	var core: Node3D = ENEMY_OUTPOST_SCENE.instantiate()
+	core.position = pos
+	_wildlife_root.add_child(core)
+	core.add_to_group("enemy")
+	# Cercle rouge (ennemi) + barre de vie, comme les autres unités.
+	core.add_child(_make_ground_circle(Color(0.85, 0.15, 0.15)))
+	core.add_child(_make_health_bar_node())
+	core.died.connect(_on_outpost_died)
+	# Quelques gardes hostiles autour du cœur (ils défendent l'avant-poste).
+	for i in 4:
+		var g: Node3D = MONSTER_SCENE.instantiate()
+		g.set("type", Monster.Type.BEAR if i == 0 else Monster.Type.WOLF)
+		g.position = pos + Vector3(cos(TAU * i / 4.0) * 4.5, 0.0, sin(TAU * i / 4.0) * 4.5)
+		_wildlife_root.add_child(g)
+		g.add_to_group("enemy")
+		g.add_child(_make_ground_circle(Color(0.9, 0.2, 0.15)))
+		g.add_child(_make_health_bar_node())
+		g.died.connect(_on_wildlife_died)
+
+## Butin à la destruction de l'avant-poste : gros gain de ressources + texte.
+func _on_outpost_died(outpost: Node) -> void:
+	var total := 0
+	for entry in outpost.loot():
+		var res: String = entry[0]
+		var qty: int = entry[1]
+		total += qty
+		match res:
+			"wood": ResourceManager.add_wood(qty)
+			"stone": ResourceManager.add_stone(qty)
+			"food": ResourceManager.add_food(qty)
+			"gold": ResourceManager.add_gold(qty)
+		show_float_text(outpost.global_position + Vector3(0, 2.5, 0), "+%d" % qty, _loot_color(res))
+	_notify("Avant-poste ennemi détruit ! +%d ressources" % total)
+	# Pillage = activité du royaume (le royaume prospère en guerroyant).
+	var realm := get_node_or_null("/root/Realm")
+	if realm != null and realm.has_method("activity"):
+		realm.call("activity", 3.0)
+
 func _add_default_task(villager: Node3D) -> void:
 	var rn := _nearest_resource_node(villager.global_position)
 	if rn != null:
@@ -1272,16 +1317,17 @@ func _update_all_local_health_bars() -> void:
 				var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
 				var ld: int = int(child.get("last_damage_ms")) if child.get("last_damage_ms") != null else -100000
 				_update_health_bar(hb, hp, mh, ld)
-	# Barres de vie de la faune hostile (PvE).
+	# Barres de vie de la faune hostile (PvE) + avant-postes ennemis.
 	if _wildlife_root != null:
 		for child in _wildlife_root.get_children():
-			if child is CharacterBody3D and child.has_method("take_damage"):
-				var hb := child.get_node_or_null("HealthBar") as Node3D
-				if hb != null:
-					var hp: float = float(child.get("hp")) if child.get("hp") != null else 100.0
-					var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
-					var ld: int = int(child.get("last_damage_ms")) if child.get("last_damage_ms") != null else -100000
-					_update_health_bar(hb, hp, mh, ld)
+			if not child.has_method("take_damage"):
+				continue
+			var hb := child.get_node_or_null("HealthBar") as Node3D
+			if hb != null:
+				var hp: float = float(child.get("hp")) if child.get("hp") != null else 100.0
+				var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
+				var ld: int = int(child.get("last_damage_ms")) if child.get("last_damage_ms") != null else -100000
+				_update_health_bar(hb, hp, mh, ld)
 
 ## Crée une unité distante avec le VRAI modèle (paysan/soldat) + cercle rouge + barre de vie.
 func _make_remote_unit(owner_id: int, index: int, kind: int) -> RemoteUnit:
