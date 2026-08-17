@@ -261,3 +261,7 @@ func _nearest_player(from_pos: Vector3) -> Node3D:
 func die() -> void:
 	died.emit(self)
 	queue_free()
+
+## Un monstre mort (ou en train d'être libéré) n'est plus une cible valide.
+func is_dead() -> bool:
+	return hp <= 0.0 or not is_inside_tree()

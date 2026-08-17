@@ -76,8 +76,14 @@ var _touch_count := 0
 var _tap_allowed := true
 # --- Barre d'action mobile (remplace le clic droit) ---
 # Modes d'ordre : quel ordre le prochain tap sur le monde doit-il exécuter.
-enum OrderMode { NONE, MOVE, GATHER, ATTACK }
+enum OrderMode { NONE, MOVE, GATHER, ATTACK, ATTACK_MOVE }
 var _order_mode: int = OrderMode.NONE
+# --- Attaque en avançant (A-Move) ---
+var _a_move_active: bool = false
+var _a_move_target: Vector3 = Vector3.ZERO
+var _a_move_hero: Node3D = null    # héros qui pilote l'ordre (si sélectionné)
+var _a_move_units: Array = []       # unités indépendantes en A-move (sans héros)
+var _a_move_scan: float = 0.0
 var _order_bar: HBoxContainer = null
 var _inspect_label: Label = null
 var _order_btns := {}   # OrderMode -> Button
@@ -296,6 +302,12 @@ func _spawn_world() -> void:
 	hb_timer.autostart = true
 	hb_timer.timeout.connect(_update_all_local_health_bars)
 	add_child(hb_timer)
+	# Timer de l'Attaque-en-avançant (A-Move) : fait progresser l'ordre en cours.
+	var amove_timer := Timer.new()
+	amove_timer.wait_time = 0.25
+	amove_timer.autostart = true
+	amove_timer.timeout.connect(_on_a_move_tick)
+	add_child(amove_timer)
 	_await_frame_then_bake()
 
 ## Vide les nœuds du monde générés (ressources, décor, bâtiments, unités) pour
@@ -1799,6 +1811,9 @@ func _order_action(screen_pos: Vector2, mode: int = OrderMode.NONE) -> void:
 	if _selected_units.is_empty():
 		return
 
+	# Tout nouvel ordre annule un A-Move en cours.
+	_a_move_active = false
+
 	# MODES EXPLICITES : quand on a choisi un mode puis qu'on tape sur le monde,
 	# le groupe exécute DIRECTEMENT ce mode à cet endroit (pas de détection
 	# "intelligente" ambigüe). Le clic droit (mode NONE) garde l'auto-détection.
@@ -1811,6 +1826,9 @@ func _order_action(screen_pos: Vector2, mode: int = OrderMode.NONE) -> void:
 			return
 		OrderMode.ATTACK:
 			_execute_attack_order(screen_pos)
+			return
+		OrderMode.ATTACK_MOVE:
+			_execute_attack_move_order(screen_pos)
 			return
 
 	# --- MODE AUTO (mode == NONE) : clic droit ---
@@ -1922,6 +1940,88 @@ func _execute_attack_order(screen_pos: Vector2) -> void:
 			u.attack_target(enemy)
 		elif u.has_method("attack_node"):
 			u.attack_node(enemy)
+
+## MODE A-MOVE (Attaque en avançant) : le groupe se rend au point cliqué en
+## engageant tout ennemi rencontré sur le chemin, puis reprend sa marche.
+func _execute_attack_move_order(screen_pos: Vector2) -> void:
+	var ground := _ground_point(screen_pos)
+	if not ground.has("pos"):
+		return
+	var p: Vector3 = ground["pos"]
+	_a_move_target = p
+	_a_move_units.clear()
+	_a_move_hero = null
+	for u in _selected_units:
+		if u is Hero:
+			_a_move_hero = u
+			u.move_to_point(p)
+		elif u.has_method("move_to_point"):
+			# On ne donne pas d'ordre individuel aux membres de la troupe d'un héros
+			# (ils suivent le héros en formation). Les unités hors troupe avancent.
+			var in_troop := false
+			for h in _selected_units:
+				if h is Hero and h.has_method("troop_has") and h.call("troop_has", u):
+					in_troop = true
+					break
+			if not in_troop:
+				u.move_to_point(p)
+				_a_move_units.append(u)
+	_a_move_active = true
+	_a_move_scan = 0.0
+
+## Ennemi (groupe "enemy") vivant le plus proche de `pos`, à moins de `radius`.
+func _nearest_enemy_within(pos: Vector3, radius: float) -> Node3D:
+	var best: Node3D = null
+	var best_d := radius * radius
+	for node in get_tree().get_nodes_in_group("enemy"):
+		if node is Node3D and is_instance_valid(node):
+			var n: Node3D = node
+			if n.has_method("is_dead") and n.call("is_dead"):
+				continue
+			var d := pos.distance_squared_to(n.global_position)
+			if d < best_d:
+				best_d = d
+				best = n
+	return best
+
+## Fait avancer l'A-Move d'un pas (appelé périodiquement) : engage les ennemis
+## proches, sinon continue vers la cible. Renvoie false quand l'ordre est fini.
+func _on_a_move_tick() -> void:
+	if not _a_move_active:
+		return
+	_a_move_step()
+
+func _a_move_step() -> bool:
+	var done := true
+	if _a_move_hero != null and is_instance_valid(_a_move_hero):
+		var hero: Node3D = _a_move_hero as Node3D
+		var enemy := _nearest_enemy_within(hero.global_position, 9.0)
+		if enemy != null:
+			hero.call("attack_target", enemy)
+			done = false
+		else:
+			var d: float = hero.global_position.distance_to(_a_move_target)
+			if d > 1.5:
+				hero.call("move_to_point", _a_move_target)
+				done = false
+	else:
+		for u in _a_move_units:
+			if not is_instance_valid(u):
+				continue
+			var un: Node3D = u as Node3D
+			var enemy := _nearest_enemy_within(un.global_position, 8.0)
+			if enemy != null:
+				un.call("attack_target", enemy)
+				done = false
+			else:
+				var d: float = un.global_position.distance_to(_a_move_target)
+				if d > 1.5:
+					un.call("move_to_point", _a_move_target)
+					done = false
+	if done:
+		_a_move_active = false
+		return false
+	return true
 
 ## Ressource la plus proche du point de l'écran (projection rayon -> plan sol).
 func _nearest_resource_to(screen_pos: Vector2) -> ResourceNode:
@@ -2334,13 +2434,20 @@ func _on_realm_changed(value: float, zone: String) -> void:
 	_hud_realm_label.text = "Royaume : %d" % int(value)
 
 ## Met à jour mon affiliation de clan dans le HUD.
+func _clans() -> Node:
+	# Accès null-safe à l'autoload : évite toute dépendance au nom global au parse.
+	return get_node_or_null("/root/Clans")
+
 func _on_my_clan_changed() -> void:
 	if _hud_clan_label == null:
 		return
-	if Clans.my_clan == "":
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	if clans.my_clan == "":
 		_hud_clan_label.text = "Aucun clan — touchez « Clan »"
 	else:
-		_hud_clan_label.text = "%s (%s)" % [Clans.my_clan_name(), Clans.my_clan]
+		_hud_clan_label.text = "%s (%s)" % [clans.my_clan_name(), clans.my_clan]
 
 ## Compte les unités vivantes pour l'affichage Travailleurs / Soldats.
 func _refresh_unit_counts() -> void:
@@ -2915,8 +3022,9 @@ func _build_clan_panel_content() -> void:
 	_clan_list_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
 	vb.add_child(_clan_list_label)
 	# NB : my_clan_changed est déjà connecté dans _setup_hud (pas de double lien).
-	if get_node_or_null("/root/Clans") != null:
-		Clans.clans_received.connect(_on_clans_received)
+	var clans: Node = _clans()
+	if clans != null:
+		clans.clans_received.connect(_on_clans_received)
 
 func _on_create_clan_pressed() -> void:
 	var clan_label := _clan_name_input.text.strip_edges()
@@ -2924,17 +3032,26 @@ func _on_create_clan_pressed() -> void:
 	if clan_label.is_empty() or tag.is_empty():
 		_notify("Choisissez un nom et un tag.")
 		return
-	Clans.create_clan(clan_label, tag, 0)
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	clans.create_clan(clan_label, tag, 0)
 
 func _on_join_clan_pressed() -> void:
 	var tag := _clan_join_input.text.strip_edges()
 	if tag.is_empty():
 		_notify("Entrez un tag de clan à rejoindre.")
 		return
-	Clans.join_clan(tag)
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	clans.join_clan(tag)
 
 func _on_leave_clan_pressed() -> void:
-	Clans.leave_clan()
+	var clans: Node = _clans()
+	if clans == null:
+		return
+	clans.leave_clan()
 
 func _on_clans_received() -> void:
 	_refresh_clan_panel()
@@ -2943,12 +3060,14 @@ func _refresh_clan_panel() -> void:
 	if _clan_panel == null or _clan_list_label == null:
 		return
 	# Met à jour la liste des clans visibles.
+	var clans: Node = _clans()
 	var lines: Array = []
-	for t in Clans.local_clans.keys():
-		var c: Dictionary = Clans.local_clans[t]
-		lines.append("• %s [%s] — %d membre(s) — Grandeur %d" % [
-			str(c.get("name", t)), t, int(c.get("members", {}).size()), int(c.get("grandeur", 0))
-		])
+	if clans != null:
+		for t in clans.local_clans.keys():
+			var c: Dictionary = clans.local_clans[t]
+			lines.append("• %s [%s] — %d membre(s) — Grandeur %d" % [
+				str(c.get("name", t)), t, int(c.get("members", {}).size()), int(c.get("grandeur", 0))
+			])
 	if lines.is_empty():
 		_clan_list_label.text = "Aucun clan pour l'instant.\nSoyez le premier à créer un clan !"
 	else:
@@ -3016,6 +3135,7 @@ func _setup_order_button() -> void:
 		[OrderMode.MOVE, "Déplacer"],
 		[OrderMode.GATHER, "Récolter"],
 		[OrderMode.ATTACK, "Attaquer"],
+		[OrderMode.ATTACK_MOVE, "A-Move"],
 	]
 	for a in actions:
 		var btn := Button.new()
@@ -3254,6 +3374,7 @@ func _arm_order(mode: int) -> void:
 		OrderMode.MOVE: hint = "Touchez un endroit du sol"
 		OrderMode.GATHER: hint = "Touchez une ressource (or/bois/pierre)"
 		OrderMode.ATTACK: hint = "Touchez un ennemi"
+		OrderMode.ATTACK_MOVE: hint = "Touchez une direction : l'armée y va en attaquant ce qu'elle croise"
 	_notify(hint)
 	if _order_hint != null:
 		_order_hint.text = "👉 " + hint
