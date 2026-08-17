@@ -8,7 +8,7 @@ extends CharacterBody3D
 ## - Lâche du butin à sa mort (signal `died`).
 
 enum Type { WOLF, BOAR, BEAR }
-enum State { IDLE, CHASE, ATTACK }
+enum State { IDLE, CHASE, ATTACK, RETURN }
 
 ## Stats + butin par type. `aggressive` = chasse seule les unités proches ;
 ## une bête passive ne riposte que si on l'attaque.
@@ -16,17 +16,17 @@ const STATS: Dictionary = {
 	Type.WOLF: {
 		"hp": 40.0, "speed": 5.5, "damage": 8, "range": 1.4, "cd": 0.8,
 		"aggro": 8.0, "aggressive": true, "scale": 0.85, "color": Color(0.55, 0.58, 0.63),
-		"loot": [["wood", 12], ["food", 4]],
+		"leash": 13.0, "loot": [["wood", 12], ["food", 4]],
 	},
 	Type.BOAR: {
 		"hp": 75.0, "speed": 4.0, "damage": 12, "range": 1.4, "cd": 1.1,
 		"aggro": 5.0, "aggressive": false, "scale": 1.0, "color": Color(0.34, 0.25, 0.20),
-		"loot": [["food", 15], ["wood", 6]],
+		"leash": 11.0, "loot": [["food", 15], ["wood", 6]],
 	},
 	Type.BEAR: {
 		"hp": 140.0, "speed": 3.0, "damage": 22, "range": 1.6, "cd": 1.4,
 		"aggro": 8.5, "aggressive": true, "scale": 1.35, "color": Color(0.43, 0.33, 0.27),
-		"loot": [["stone", 12], ["gold", 8], ["food", 8]],
+		"leash": 15.0, "loot": [["stone", 12], ["gold", 8], ["food", 8]],
 	},
 }
 
@@ -47,6 +47,7 @@ var _scan_t: float = 0.0
 var _wander_t: float = 0.0
 var _wander_point: Vector3 = Vector3.ZERO
 var _spawn_pos: Vector3 = Vector3.ZERO
+var _leash_range: float = 12.0
 
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
 
@@ -64,6 +65,7 @@ func _ready() -> void:
 	# ne doit pas être freinée par les arbres/bâtiments/unités.
 	collision_mask = 8
 	_wander_point = _spawn_pos
+	_leash_range = float(s.get("leash", 12.0))
 
 func _stat() -> Dictionary:
 	return STATS[type]
@@ -91,6 +93,7 @@ func characteristics() -> Array:
 		["Portée", "%.1f" % s.range],
 		["Cadence", "%.1f s" % s.cd],
 		["Agressif", "Oui" if s.aggressive else "Non"],
+		["Territoire", "%.0f u (au-delà, il abandonne)" % _leash_range],
 	]
 
 # ============================================================ MODÈLE 3D (primitif)
@@ -152,9 +155,12 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y = -2.0
 	_scan_t -= delta
+	# Ne cherche une nouvelle cible que lorsqu'on erre sur notre territoire
+	# (idle) : en chasse/poursuite/retour on garde la cible ou on rentre.
 	if _scan_t <= 0.0:
 		_scan_t = 0.3
-		_find_target()
+		if _state == State.IDLE:
+			_find_target()
 	match _state:
 		State.IDLE:
 			_idle(delta)
@@ -162,6 +168,8 @@ func _physics_process(delta: float) -> void:
 			_chase(delta)
 		State.ATTACK:
 			_attack(delta)
+		State.RETURN:
+			_return(delta)
 
 func _alive(u: Node) -> bool:
 	if not is_instance_valid(u):
@@ -219,11 +227,37 @@ func _chase(_delta: float) -> void:
 		_target = null
 		_state = State.IDLE
 		return
+	# PÉRIMÈTRE / LEASH : si la proie nous emmène trop loin de notre territoire,
+	# on abandonne la poursuite et on retourne au point d'apparition.
+	if global_position.distance_to(_spawn_pos) > _leash_range:
+		_return_home()
+		return
 	nav_agent.target_position = _target.global_position
 	if global_position.distance_to(_target.global_position) <= _stat().range:
 		_state = State.ATTACK
 		return
 	_steer(_stat().speed)
+	move_and_slide()
+
+## Abandonne la proie et retourne vers son territoire (perte de la poursuite).
+func _return_home() -> void:
+	_target = null
+	_state = State.RETURN
+	velocity = Vector3.ZERO
+
+## Retour au point d'apparition : on ne réacquiert pas de cible en chemin, et on
+## se soigne complètement en arrivant (le « leash » remet la bête à neuf).
+func _return(_delta: float) -> void:
+	if global_position.distance_to(_spawn_pos) <= 1.0:
+		_state = State.IDLE
+		hp = max_hp
+		velocity = Vector3.ZERO
+		move_and_slide()
+		return
+	var dir := global_position.direction_to(_spawn_pos)
+	dir.y = 0.0
+	velocity = dir * _stat().speed
+	_facing(dir)
 	move_and_slide()
 
 func _attack(_delta: float) -> void:
