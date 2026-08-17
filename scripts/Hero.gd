@@ -223,6 +223,14 @@ func troop_count(kind: int) -> int:
 ##  - UNIQUEMENT des paysans -> ils se forment comme des soldats (anneau complet
 ##    autour du héros) car aucun front n'est à protéger.
 ## Les spots sont indexés par _troop[i] (même ordre), requis par le rappel.
+## Construit les offsets de formation en RÉFÉRENTIEL LOCAL du héros (avant = -Z).
+## La rotation du héros est appliquée à l'usage (_formation_spot_world), donc la
+## formation pivote toujours avec l'orientation du héros.
+##  - Soldats : ANNEAU complet autour du héros (le héros reste au centre).
+##  - Paysans : ARC au DOS du héros (local +Z), à un rayon supérieur à l'anneau
+##    des soldats => complètement derrière le cercle des soldats.
+##  - Uniquement des paysans : anneau rond comme des soldats.
+## Les spots restent indexés par _troop[i] (même ordre) pour le rappel.
 func _build_formation_spots() -> void:
 	_formation_spots.clear()
 	var troop: Array = _troop
@@ -232,15 +240,7 @@ func _build_formation_spots() -> void:
 			soldier_count += 1
 	var peasant_count: int = troop.size() - soldier_count
 
-	# Direction avant du héros (sa rotation Y). Si inexistante, repli sur -Z.
-	var fwd := -global_transform.basis.z
-	fwd.y = 0.0
-	var fwd_len := fwd.length()
-	if fwd_len < 0.001:
-		fwd = Vector3.FORWARD
-	else:
-		fwd = fwd / fwd_len
-	var a_fwd := atan2(fwd.z, fwd.x)   # angle du vecteur avant dans le plan XZ
+	const A_FWD := -PI / 2.0   # angle local de l'avant (-Z) du héros
 
 	# UNIQUEMENT des paysans (ou aucune troupe) : anneau rond comme des soldats.
 	if soldier_count == 0:
@@ -250,37 +250,44 @@ func _build_formation_spots() -> void:
 			radius = 1.1 + sqrt(float(n)) * 0.35
 		var step := TAU / maxi(n, 1)
 		for i in n:
-			_formation_spots.append(_ring_spot(a_fwd + step * float(i), radius))
+			_formation_spots.append(_ring_spot(A_FWD + step * float(i), radius))
 		return
 
-	# FORMATION MIXTE : soldats proches (plein cercle), paysans derrière (arc arrière).
+	# FORMATION MIXTE : soldats en anneau (cercle), paysans en arc derrière.
 	var rs: float = 1.1 + sqrt(float(maxi(soldier_count, 1))) * 0.35
 	var s_step := TAU / maxi(soldier_count, 1)
 
-	# Paysans : arc ARRIÈRE. La caméra regarde depuis +Z (l'avant de l'écran =
-	# +Z ; le haut de l'écran = -Z). Pour que les paysans restent « derrière »
-	# (au haut de l'écran, à l'abri derrière le rideau de soldats), on les place
-	# du côté -Z, à un rayon plus grand que l'anneau des soldats.
-	var rp: float = rs + 1.2 + sqrt(float(maxi(peasant_count, 1))) * 0.35
-	var back_center := a_fwd
+	# Paysans : arc au DOS du héros (local +Z = opposé de l'avant -Z), à un rayon
+	# supérieur à celui de l'anneau des soldats pour être complètement derrière.
+	var rp: float = rs + 1.4 + sqrt(float(maxi(peasant_count, 1))) * 0.35
+	var back_center := A_FWD + PI   # local +Z : exactement au dos du héros
 	var spread: float = 2.2
-	var p_step := spread / maxi(peasant_count, 1)
-	# Décalage de départ pour centrer l'arc derrière (au milieu des soldats voisins).
-	var p_start := back_center - spread * 0.5
+	var half := spread * 0.5
 
 	var s_idx := 0
 	var p_idx := 0
 	for i in troop.size():
 		if troop[i] is Soldier:
-			_formation_spots.append(_ring_spot(a_fwd + s_step * float(s_idx), rs))
+			_formation_spots.append(_ring_spot(A_FWD + s_step * float(s_idx), rs))
 			s_idx += 1
 		else:
-			_formation_spots.append(_ring_spot(p_start + p_step * float(p_idx), rp))
+			var angle: float = back_center
+			if peasant_count > 1:
+				angle = back_center - half + spread * float(p_idx) / float(peasant_count - 1)
+			_formation_spots.append(_ring_spot(angle, rp))
 			p_idx += 1
 
-## Point local (autour du héros) sur un anneau : angle `a` dans le plan XZ, rayon `radius`.
+## Point LOCAL (référentiel héros, avant = -Z) sur un anneau : angle `a`, rayon `radius`.
 func _ring_spot(a: float, radius: float) -> Vector3:
 	return Vector3(cos(a) * radius, 0.0, sin(a) * radius)
+
+## Point MONDE de la position de formation du membre `i`, en tenant compte de la
+## rotation actuelle du héros : offset local pivoté par la base du héros.
+func _formation_spot_world(i: int) -> Vector3:
+	var off: Vector3 = _formation_spots[i] if i < _formation_spots.size() else Vector3.ZERO
+	var world_off: Vector3 = global_transform.basis * off
+	world_off.y = 0.0   # garder la formation au sol (plan XZ)
+	return global_position + world_off
 
 # ======================================================================
 # FORMATION / MOUVEMENT
@@ -318,8 +325,7 @@ func _move_troop_to_formation() -> void:
 		var u: Node = _troop[i]
 		if not is_instance_valid(u):
 			continue
-		var off: Vector3 = _formation_spots[i] if i < _formation_spots.size() else Vector3.ZERO
-		var spot: Vector3 = global_position + off
+		var spot: Vector3 = _formation_spot_world(i)
 		if u.has_method("move_to_point"):
 			u.call("move_to_point", spot)
 
@@ -362,20 +368,25 @@ func _physics_process(delta: float) -> void:
 	if hp <= 0:
 		die()
 		return
-	# Mise à jour continue de la formation : chaque membre reste à son offset.
+	# Mise à jour continue de la formation : chaque membre reste sur sa position
+	# de formation (offset local pivoté par l'orientation du héros).
 	for i in _troop.size():
 		var u: Node = _troop[i]
 		if not is_instance_valid(u):
 			_troop.erase(u)
 			continue
-		var off: Vector3 = _formation_spots[i] if i < _formation_spots.size() else Vector3.ZERO
-		var spot: Vector3 = global_position + off
 		# Ne pas rappeler un membre occupé à récolter : il reviendra tout seul.
 		if _is_member_busy(u):
 			continue
+		var spot: Vector3 = _formation_spot_world(i)
+		# Tolérance : à l'arrêt (IDLE) on recentre précisément sur le cercle/arc
+		# (petit seuil) pour une formation nette ; en mouvement on laisse suivre.
+		var tol: float = 1.8
+		if _state == State.IDLE:
+			tol = 1.0 if u is Soldier else 0.4
 		if u.has_method("_hdist"):
 			var d: float = u.call("_hdist", spot)
-			if d > 1.6:
+			if d > tol:
 				if u.has_method("move_to_point"):
 					u.call("move_to_point", spot)
 

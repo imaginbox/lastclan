@@ -63,3 +63,9 @@ func test_mixed_soldiers_front_peasants_back() -> void:
 	# Les soldats restent les plus proches du héros : chaque soldat est plus
 	# proche OU à égalité que le paysan le plus éloigné d'eux.
 	_check(d_s0 < d_p1 and d_s2 < d_p1, "soldats strictement plus proches que le paysan")
+	# Paysan UNIQUE : placé exactement au DOS du héros (local +Z), pas sur le côté.
+	var p: Vector3 = spots[1]
+	_check(abs(p.x) < 0.01, "paysan centré au dos (x~0) : %f" % p.x)
+	_check(p.z > 0.0, "paysan derrière le héros (z>0) : %f" % p.z)
+	# Soldats de part et d'autre du héros (l'un à l'avant -Z, l'autre à l'arrière +Z).
+	_check(spots[0].z < 0.0, "soldat avant (z<0) : %f" % spots[0].z)
