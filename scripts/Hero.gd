@@ -71,6 +71,9 @@ func _ready() -> void:
 	if gc != null:
 		max_hp = int(gc.get_value("hero.pv"))
 		hp = max_hp
+	# Montée en puissance avec la ville : endurance selon le niveau de l'HDV.
+	max_hp = maxi(int(float(max_hp) * UnitStats.hp_scale(self)), 1)
+	hp = mini(hp, max_hp)
 	var model := get_node_or_null("Model") as Node3D
 	if model != null and model.has_method("get_model_anim_player"):
 		anim_player = model.get_model_anim_player()
@@ -94,7 +97,7 @@ func _move_speed() -> float:
 		var v = gc.get_value("hero.vitesse")
 		if v != null:
 			base = float(v)
-	return base
+	return base * UnitStats.speed_scale(self)
 
 func _atk_damage() -> int:
 	var gc := get_node_or_null("/root/GameConfig")
@@ -103,7 +106,7 @@ func _atk_damage() -> int:
 		var v = gc.get_value("hero.degats")
 		if v != null:
 			base = int(v)
-	return int(base * _scale_level())
+	return int(float(base) * UnitStats.damage_scale(self))
 
 func _attack_range() -> float:
 	return ATTACK_RANGE
@@ -233,6 +236,26 @@ func troop_count(kind: int) -> int:
 		elif kind == UnitKind.ARCHER and u is Archer:
 			n += 1
 	return n
+
+## Retire de la troupe les membres morts (références invalides). Appelé par
+## main.gd à la mort d'une unité pour garder le tableau de la troupe à jour.
+func prune_dead_troop() -> void:
+	for i in range(_troop.size() - 1, -1, -1):
+		if not is_instance_valid(_troop[i]):
+			_troop.remove_at(i)
+
+## Liste des caractéristiques du héros (inspecteur / panneau de gestion).
+func characteristics() -> Array:
+	var cap: int = troop_capacity()
+	return [
+		["Rôle", "Héros"],
+		["Niveau ville", str(UnitStats.town_hall_level(self))],
+		["Vie (endurance)", "%d / %d" % [hp, max_hp]],
+		["Rapidité", "%.2f" % _move_speed()],
+		["Force", "%d" % _atk_damage()],
+		["Troupe", "%d / %d" % [troop_size(), cap]],
+		["Bonus troupe", "+%d%% dégâts" % int((command_attack_mult() - 1.0) * 100.0)],
+	]
 
 ## Construit les offsets de formation autour du héros.
 ## Logique « risque » :

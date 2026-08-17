@@ -193,6 +193,27 @@ func _cfg() -> Dictionary:
 	_apply_cfg_overrides(out)
 	return out
 
+## Nom lisible du type de bâtiment (pour l'inspecteur).
+func type_display() -> String:
+	match type:
+		Type.TOWN_HALL: return "Hôtel de ville"
+		Type.BARRACKS: return "Caserne"
+		Type.HOUSE: return "Maison"
+		Type.TOWER: return "Tour de défense"
+		Type.FERME: return "Ferme"
+		Type.CARRIERE: return "Carrière"
+		Type.MINE_OR: return "Mine d'or"
+	return "Bâtiment"
+
+## Liste des caractéristiques affichées dans l'inspecteur (clic sur le bâtiment).
+func characteristics() -> Array:
+	return [
+		["Rôle", "Bâtiment"],
+		["Type", type_display()],
+		["Niveau", "%d / %d" % [level, effective_max_level()]],
+		["Niveau ville", str(town_hall_level())],
+	]
+
 ## Retourne le préfixe de clé GameConfig pour ce type de bâtiment, ou "".
 func _cfg_prefix() -> String:
 	match type:

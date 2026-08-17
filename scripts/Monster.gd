@@ -72,6 +72,27 @@ func _stat() -> Dictionary:
 func loot() -> Array:
 	return _stat().loot
 
+## Nom lisible du type de créature.
+func _type_name() -> String:
+	match int(type):
+		Type.WOLF: return "Loup"
+		Type.BOAR: return "Sanglier"
+		Type.BEAR: return "Ours"
+	return "Créature"
+
+## Liste des caractéristiques affichées dans l'inspecteur (clic sur la créature).
+func characteristics() -> Array:
+	var s := _stat()
+	return [
+		["Rôle", "Faune hostile (%s)" % _type_name()],
+		["Vie (endurance)", "%d / %d" % [int(hp), int(max_hp)]],
+		["Rapidité", "%.2f" % s.speed],
+		["Force", "%d" % s.damage],
+		["Portée", "%.1f" % s.range],
+		["Cadence", "%.1f s" % s.cd],
+		["Agressif", "Oui" if s.aggressive else "Non"],
+	]
+
 # ============================================================ MODÈLE 3D (primitif)
 
 func _build_model(s: Dictionary) -> void:

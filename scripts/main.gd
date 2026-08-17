@@ -44,6 +44,10 @@ var _wildlife_root: Node3D = null
 var _raid_outpost: Node3D = null
 var _raid_arrow: Polygon2D = null
 
+## Entité ennemie inspectée au clic (monstre / avant-poste) : affichée dans le
+## panneau d'inspecteur sans être ajoutée à la sélection d'unités contrôlables.
+var _inspected_enemy: Node = null
+
 var _camera: Camera3D = null
 var _selected_units: Array[Node] = []
 var _selected_building: Building = null
@@ -108,8 +112,7 @@ var _formation_ring_button: Button = null
 var _formation_line_button: Button = null
 var _formation_column_button: Button = null
 var _unit_role_lbl: Label = null
-var _unit_hp_lbl: Label = null
-var _unit_state_lbl: Label = null
+var _unit_attr_box: VBoxContainer = null
 # --- Échelle UI (plus grande sur mobile) ---
 var _ui_scale: float = 1.0
 ## True si l'écran est en portrait (plus haut que large) — guide la répartition
@@ -133,6 +136,10 @@ var _hud_clan_label: Label = null
 ## flottant accessibles via un bouton « + ». Repliées sur mobile, ouvertes sur PC.
 var _hud_extra_box: HBoxContainer = null
 var _hud_extra_panel: PanelContainer = null
+var _hud_extra_vbox: VBoxContainer = null
+var _hud_hero_count_label: Label = null
+var _hud_recruit_hero_btn: Button = null
+var _extra_hero_index: int = 0
 var _hud_plus_btn: Button = null
 var _clan_panel: PanelContainer = null
 var _clan_name_input: LineEdit = null
@@ -811,6 +818,10 @@ func _spawn_initial_buildings() -> void:
 func _add_local_unit_visuals(unit: Node3D) -> void:
 	unit.add_child(_make_ground_circle(Color.GREEN))
 	unit.add_child(_make_health_bar_node())
+	# À la mort d'une unité locale, on met à jour les compteurs + panneaux pour
+	# que le mort disparaisse bien du jeu ET du tableau.
+	if unit.has_signal("died"):
+		unit.died.connect(_on_local_unit_died)
 
 func _spawn_villagers() -> void:
 	_spawn_hero()
@@ -840,6 +851,25 @@ func _spawn_hero() -> void:
 	# Cercle au sol DORÉ distinct + barre de vie, pour bien repérer le héros.
 	h.add_child(_make_ground_circle(Color(1.0, 0.82, 0.15)))
 	h.add_child(_make_health_bar_node())
+	h.died.connect(_on_local_unit_died)
+
+## À la mort d'une unité locale : la retire du jeu (déjà fait par queue_free)
+## ET met à jour tous les tableaux — compteurs HUD, troupe des héros, inspecteur.
+func _on_local_unit_died() -> void:
+	# Retire les membres morts de la troupe de chaque héros (tableau à jour).
+	for child in villager_root.get_children():
+		if child is Hero and child.has_method("prune_dead_troop"):
+			child.call("prune_dead_troop")
+	# Purge la sélection des unités mortes (références invalides).
+	var i := _selected_units.size() - 1
+	while i >= 0:
+		if not is_instance_valid(_selected_units[i]):
+			_selected_units.remove_at(i)
+		i -= 1
+	_refresh_unit_counts()
+	_refresh_inspector()
+	if _troop_hero != null:
+		_refresh_troop_panel()
 
 ## Génère la faune hostile (PvE) sur la carte, hors de la zone du village.
 func _spawn_wildlife() -> void:
@@ -1831,6 +1861,10 @@ func _select_single(screen_pos: Vector2) -> void:
 			var b := _building_at(node)
 			if b != null:
 				_select_building(b)
+			else:
+				var enemy := _enemy_at(node)
+				if enemy != null:
+					_inspected_enemy = enemy
 	_update_selection_feedback()
 
 func _select_box(from: Vector2, to: Vector2) -> void:
@@ -1851,6 +1885,7 @@ func _deselect_all() -> void:
 		if is_instance_valid(u):
 			u.call("set_selected", false)
 	_selected_units.clear()
+	_inspected_enemy = null
 	if _selected_building != null:
 		_selected_building.set_selected(false)
 		_selected_building = null
@@ -2174,6 +2209,15 @@ func _unit_at(node: Node) -> Node:
 		cur = cur.get_parent()
 	return null
 
+## Retrouve une créature / un avant-poste ennemi cliquable (pour l'inspecter).
+func _enemy_at(node: Node) -> Node:
+	var cur: Node = node
+	while cur != null:
+		if cur is Monster or cur is EnemyOutpost:
+			return cur
+		cur = cur.get_parent()
+	return null
+
 func _building_at(node: Node) -> Building:
 	var cur: Node = node
 	while cur != null:
@@ -2355,9 +2399,13 @@ func _setup_hud() -> void:
 	eb.content_margin_bottom = 10
 	_hud_extra_panel.add_theme_stylebox_override("panel", eb)
 	layer.add_child(_hud_extra_panel)
+	# Paquet vertical : rangée de cartouches (pop/royaume/clan) + section Héros.
+	_hud_extra_vbox = VBoxContainer.new()
+	_hud_extra_vbox.add_theme_constant_override("separation", int(8 * _ui_scale))
+	_hud_extra_panel.add_child(_hud_extra_vbox)
 	_hud_extra_box = HBoxContainer.new()
 	_hud_extra_box.add_theme_constant_override("separation", int(10 * _ui_scale))
-	_hud_extra_panel.add_child(_hud_extra_box)
+	_hud_extra_vbox.add_child(_hud_extra_box)
 	# Population.
 	_hud_pop_label = _make_resource_pill(_hud_extra_box, "pop", Color(0.6, 0.9, 1.0))
 	# Jauge du royaume (icône image).
@@ -2383,6 +2431,24 @@ func _setup_hud() -> void:
 	_hud_clan_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	clan_row.add_child(_hud_clan_label)
 	_hud_extra_box.add_child(clan_row)
+	# ===== Gestionnaire de héros : recruter + compter les héros.
+	var hero_row := HBoxContainer.new()
+	hero_row.add_theme_constant_override("separation", int(6 * _ui_scale))
+	hero_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_hud_hero_count_label = Label.new()
+	_hud_hero_count_label.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_hud_hero_count_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	hero_row.add_child(_hud_hero_count_label)
+	_hud_recruit_hero_btn = Button.new()
+	_hud_recruit_hero_btn.name = "RecruitHeroButton"
+	_hud_recruit_hero_btn.text = "＋ Recruter un héros (200 or / 100 nour.)"
+	_hud_recruit_hero_btn.custom_minimum_size = Vector2(0, 34 * _ui_scale)
+	_hud_recruit_hero_btn.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	_hud_recruit_hero_btn.focus_mode = Control.FOCUS_NONE
+	_stylize_coc_button(_hud_recruit_hero_btn)
+	_hud_recruit_hero_btn.pressed.connect(_on_recruit_hero_pressed)
+	hero_row.add_child(_hud_recruit_hero_btn)
+	_hud_extra_vbox.add_child(hero_row)
 	# Liaisons données -> UI.
 	var realm := get_node_or_null("/root/Realm")
 	if realm != null:
@@ -2567,6 +2633,44 @@ func _refresh_unit_counts() -> void:
 		_hud_soldiers_label.text = "Soldats : %d" % soldiers
 	if _hud_hero_label != null:
 		_hud_hero_label.text = "Héros : %d" % heroes
+	if _hud_hero_count_label != null:
+		_hud_hero_count_label.text = "Héros en jeu : %d" % heroes
+
+## Coût (or / nourriture) pour recruter un nouveau héros.
+const HERO_RECRUIT_GOLD: int = 200
+const HERO_RECRUIT_FOOD: int = 100
+
+## Recrute un nouveau héros si les ressources le permettent.
+func _on_recruit_hero_pressed() -> void:
+	var rm := get_node("/root/ResourceManager")
+	if rm.gold < HERO_RECRUIT_GOLD or rm.food < HERO_RECRUIT_FOOD:
+		_notify("Pas assez de ressources pour recruter un héros (%d or, %d nourriture)." % [HERO_RECRUIT_GOLD, HERO_RECRUIT_FOOD])
+		return
+	rm.add_gold(-HERO_RECRUIT_GOLD)
+	rm.add_food(-HERO_RECRUIT_FOOD)
+	_spawn_extra_hero()
+	_notify("Nouveau héros recruté !")
+	if _hud_extra_panel != null:
+		_hud_extra_panel.visible = false
+	if _hud_plus_btn != null:
+		_hud_plus_btn.modulate = Color.WHITE
+
+## Fait apparaître un héros supplémentaire près du village et le sélectionne.
+func _spawn_extra_hero() -> void:
+	var h: Node3D = HERO_SCENE.instantiate()
+	villager_root.add_child(h)
+	h.position = _base_origin + Vector3(10.0 + float(_extra_hero_index) * 3.0, 0.0, 4.0)
+	h.add_to_group("hero")
+	h.add_to_group("player")
+	h.add_child(_make_ground_circle(Color(1.0, 0.82, 0.15)))
+	h.add_child(_make_health_bar_node())
+	h.died.connect(_on_local_unit_died)
+	_extra_hero_index += 1
+	_refresh_unit_counts()
+	# Sélectionne le nouveau héros pour l'inspecter immédiatement.
+	_deselect_all()
+	_selected_units.append(h)
+	_update_selection_feedback()
 
 func _notify(text: String) -> void:
 	print(text)
@@ -2666,49 +2770,40 @@ func _on_ingame_chat(author: String, text: String, _src_lang: String) -> void:
 func _refresh_inspector() -> void:
 	if _unit_panel == null:
 		return
-	if _selected_units.size() != 1 or not is_instance_valid(_selected_units[0]):
+	# Priorité 1 : un héros est sélectionné -> panneau de gestion de troupe.
+	if _selected_units.size() == 1 and is_instance_valid(_selected_units[0]) and _selected_units[0] is Hero:
 		_unit_panel.visible = false
-		_hide_troop_panel()
-		return
-	var u: Node = _selected_units[0]
-	if u is Hero:
-		_unit_panel.visible = false
-		_show_troop_panel(u)
+		_show_troop_panel(_selected_units[0])
 		return
 	_hide_troop_panel()
-	var role := ""
-	var hp_str := ""
-	var state_str := ""
-	if u is Villager:
-		role = "Paysan"
-		hp_str = "Vie : %d / %d" % [u.hp, u.max_hp]
-		match int(u._state):
-			Villager.State.GOING_TO_RESOURCE: state_str = "En route vers la ressource"
-			Villager.State.GATHERING: state_str = "Récolte en cours…"
-			Villager.State.RETURNING: state_str = "Livre la ressource (%d)" % u._carried_amount
-			Villager.State.ATTACKING: state_str = "Combat"
-			Villager.State.MOVING: state_str = "Se déplace"
-			_: state_str = "En attente (idle)"
-	elif u is Soldier:
-		role = "Soldat"
-		hp_str = "Vie : %d / %d" % [u.hp, u.max_hp]
-		match int(u._state):
-			Soldier.State.ATTACK: state_str = "Combat"
-			Soldier.State.MOVE: state_str = "Se déplace"
-			_: state_str = "En attente (idle)"
-	elif u is Archer:
-		role = "Archer"
-		hp_str = "Vie : %d / %d" % [u.hp, u.max_hp]
-		match int(u._state):
-			Archer.State.ATTACK: state_str = "Tire"
-			Archer.State.MOVE: state_str = "Se déplace"
-			_: state_str = "En attente (idle)"
-	else:
-		_unit_panel.visible = false
+	# Priorité 2 : une entité ennemie (monstre / avant-poste) est inspectée.
+	if _inspected_enemy != null and is_instance_valid(_inspected_enemy) \
+			and not (_inspected_enemy.has_method("is_dead") and _inspected_enemy.call("is_dead")):
+		_show_characteristics(_inspected_enemy)
 		return
-	_unit_role_lbl.text = role
-	_unit_hp_lbl.text = hp_str
-	_unit_state_lbl.text = state_str
+	# Priorité 3 : une unité du joueur est sélectionnée.
+	if _selected_units.size() == 1 and is_instance_valid(_selected_units[0]):
+		var u: Node = _selected_units[0]
+		if u is Villager or u is Soldier or u is Archer or u is Hero:
+			_show_characteristics(u)
+			return
+	_unit_panel.visible = false
+
+## Affiche les caractéristiques d'une entité quelconque (unité, monstre,
+## avant-poste) dans le panneau d'inspecteur, depuis sa méthode characteristics().
+func _show_characteristics(entity: Node) -> void:
+	var rows: Array = entity.call("characteristics") if entity.has_method("characteristics") else []
+	_unit_role_lbl.text = str(rows[0][1]) if rows.size() > 0 and rows[0][0] == "Rôle" else "Entité"
+	for c in _unit_attr_box.get_children():
+		_unit_attr_box.remove_child(c)
+		c.queue_free()
+	for row in rows:
+		var lbl := Label.new()
+		lbl.text = "%s : %s" % [str(row[0]), str(row[1])]
+		lbl.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+		lbl.add_theme_color_override("font_color", Color(0.9, 0.9, 0.92))
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_unit_attr_box.add_child(lbl)
 	_unit_panel.visible = true
 
 # ============================================================ PANEL TROUPE (HÉROS)
@@ -2739,7 +2834,13 @@ func _refresh_troop_panel() -> void:
 	_troop_title.text = "Héros (niv. %d) — %d/%d troupes" % [h.level, size, cap]
 	# Bonus de commandement (dégâts de la troupe).
 	var dmg: float = h.call("command_attack_mult")
-	_troop_info.text = "Bonus troupe : +%d%% dégâts · +%d%% vie\nArmez 'Déplacer/Attaquer' sur la carte pour bouger troupe + héros." % [int((dmg - 1.0) * 100.0), int((h.call("command_hp_mult") - 1.0) * 100.0)]
+	var attrs := ""
+	for row in h.call("characteristics"):
+		match str(row[0]):
+			"Rôle", "Niveau ville", "Bonus troupe": continue
+			_:
+				attrs += "%s : %s\n" % [str(row[0]), str(row[1])]
+	_troop_info.text = "%sBonus troupe : +%d%% dégâts · +%d%% vie\nArmez 'Déplacer/Attaquer' sur la carte pour bouger troupe + héros." % [attrs, int((dmg - 1.0) * 100.0), int((h.call("command_hp_mult") - 1.0) * 100.0)]
 	# Unités libres disponibles dans le village (non assignées à ce héros).
 	var free_workers := _count_free_units(Hero.UnitKind.VILLAGER, h)
 	var free_soldiers := _count_free_units(Hero.UnitKind.SOLDIER, h)
@@ -3403,7 +3504,7 @@ func _setup_order_button() -> void:
 	_unit_panel.offset_left = -250.0 * _ui_scale
 	_unit_panel.offset_top = 190.0 * _ui_scale
 	_unit_panel.offset_right = -12.0 * _ui_scale
-	_unit_panel.offset_bottom = 340.0 * _ui_scale
+	_unit_panel.offset_bottom = 520.0 * _ui_scale
 	_unit_panel.visible = false
 	var ub := StyleBoxFlat.new()
 	ub.bg_color = Color(0.1, 0.12, 0.16, 0.85)
@@ -3427,14 +3528,9 @@ func _setup_order_button() -> void:
 	_unit_role_lbl.add_theme_constant_override("outline_size", 6)
 	_unit_role_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	uv.add_child(_unit_role_lbl)
-	_unit_hp_lbl = Label.new()
-	_unit_hp_lbl.add_theme_font_size_override("font_size", int(16 * _ui_scale))
-	_unit_hp_lbl.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
-	uv.add_child(_unit_hp_lbl)
-	_unit_state_lbl = Label.new()
-	_unit_state_lbl.add_theme_font_size_override("font_size", int(16 * _ui_scale))
-	_unit_state_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
-	uv.add_child(_unit_state_lbl)
+	_unit_attr_box = VBoxContainer.new()
+	_unit_attr_box.add_theme_constant_override("separation", int(3 * _ui_scale))
+	uv.add_child(_unit_attr_box)
 	layer.add_child(_unit_panel)
 	_build_troop_panel(layer)
 

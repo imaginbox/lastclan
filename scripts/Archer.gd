@@ -77,6 +77,7 @@ func _move_speed() -> float:
 		if v != null:
 			base = float(v)
 	var mult: float = _speed_mult()
+	base = base * UnitStats.speed_scale(self)
 	if _following_hero and command_hero != null and is_instance_valid(command_hero):
 		return maxf(base * mult, command_hero.call("command_follow_speed"))
 	return base * mult
@@ -88,6 +89,7 @@ func _atk_damage() -> int:
 		var v = gc.get_value("unite.archer.degats")
 		if v != null:
 			base = int(v)
+	base = int(float(base) * UnitStats.damage_scale(self))
 	if command_hero != null and is_instance_valid(command_hero):
 		return int(float(base) * command_hero.call("command_attack_mult"))
 	return base
@@ -113,13 +115,32 @@ func _apply_command_bonus() -> void:
 	var mult: float = 1.0
 	if command_hero != null and is_instance_valid(command_hero):
 		mult = command_hero.call("command_hp_mult")
-	var new_max: int = maxi(int(float(base_hp) * mult), 1)
+	var new_max: int = maxi(int(float(base_hp) * UnitStats.hp_scale(self) * mult), 1)
 	max_hp = new_max
 	hp = mini(hp, new_max)
 
 func notify_command(hero: Node) -> void:
 	command_hero = hero
 	_apply_command_bonus()
+
+## Liste des caractéristiques affichées dans l'inspecteur (clic sur l'unité).
+func characteristics() -> Array:
+	return [
+		["Rôle", "Archer"],
+		["Niveau ville", str(UnitStats.town_hall_level(self))],
+		["Vie (endurance)", "%d / %d" % [hp, max_hp]],
+		["Rapidité", "%.2f" % _move_speed()],
+		["Force", "%d" % _atk_damage()],
+		["Portée", "%.1f" % _atk_range()],
+		["Cadence", "%.1f s" % _atk_cd()],
+		["État", _state_label()],
+	]
+
+func _state_label() -> String:
+	match int(_state):
+		Archer.State.ATTACK: return "Tire"
+		Archer.State.MOVE: return "Se déplace"
+	return "En attente"
 
 func _atk_range() -> float:
 	var gc := get_node_or_null("/root/GameConfig")

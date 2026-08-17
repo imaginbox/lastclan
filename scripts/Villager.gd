@@ -133,6 +133,7 @@ func _move_speed() -> float:
 	if gc != null:
 		base = float(gc.get_value("unite.paysan.vitesse"))
 	var mult: float = _speed_mult()
+	base = base * UnitStats.speed_scale(self)
 	# Pendant le rappel de formation, on court AU MOINS aussi vite que le héros
 	# (x1.2) pour le rattraper et finir en position autour de lui.
 	if _following_hero and command_hero != null and is_instance_valid(command_hero):
@@ -149,9 +150,10 @@ func _gather_time() -> float:
 ## Charge max configurable (panneau admin).
 func _max_carried() -> int:
 	var gc := get_node_or_null("/root/GameConfig")
+	var base: int = MAX_CARRIED
 	if gc != null:
-		return int(gc.get_value("unite.paysan.charge"))
-	return MAX_CARRIED
+		base = int(gc.get_value("unite.paysan.charge"))
+	return maxi(int(float(base) * UnitStats.carry_scale(self)), 1)
 
 ## Dégâts/multiplicateur d'attaque configurables.
 func _atk_damage() -> int:
@@ -159,6 +161,7 @@ func _atk_damage() -> int:
 	var base: int = ATTACK_DAMAGE
 	if gc != null:
 		base = int(gc.get_value("unite.paysan.degats"))
+	base = int(float(base) * UnitStats.damage_scale(self))
 	# Bonus de commandement (héros) : + damage%.
 	if command_hero != null and is_instance_valid(command_hero):
 		var m: float = command_hero.call("command_attack_mult")
@@ -183,7 +186,7 @@ func _apply_command_bonus() -> void:
 	var mult: float = 1.0
 	if command_hero != null and is_instance_valid(command_hero):
 		mult = command_hero.call("command_hp_mult")
-	var new_max: int = maxi(int(float(base_hp) * mult), 1)
+	var new_max: int = maxi(int(float(base_hp) * UnitStats.hp_scale(self) * mult), 1)
 	max_hp = new_max
 	hp = mini(hp, new_max)
 
@@ -191,6 +194,30 @@ func _apply_command_bonus() -> void:
 func notify_command(hero: Node) -> void:
 	command_hero = hero
 	_apply_command_bonus()
+
+## Liste des caractéristiques affichées dans l'inspecteur (clic sur l'unité).
+## Dépend du niveau de l'hôtel de ville (endurance, force, rapidité, récolte).
+func characteristics() -> Array:
+	return [
+		["Rôle", "Paysan"],
+		["Niveau ville", str(UnitStats.town_hall_level(self))],
+		["Vie (endurance)", "%d / %d" % [hp, max_hp]],
+		["Rapidité", "%.2f" % _move_speed()],
+		["Force", "%d" % _atk_damage()],
+		["Capacité de récolte", "%d" % _max_carried()],
+		["Temps de récolte", "%.1f s" % _gather_time()],
+		["État", _state_label()],
+	]
+
+## Libellé lisible de l'état courant du paysan.
+func _state_label() -> String:
+	match int(_state):
+		State.GOING_TO_RESOURCE: return "En route vers la ressource"
+		State.GATHERING: return "Récolte en cours"
+		State.RETURNING: return "Livre la ressource"
+		State.ATTACKING: return "Combat"
+		State.MOVING: return "Se déplace"
+	return "En attente"
 
 ## Gravité configurable (panneau admin, jeu.gravite, défaut -20) — positive au sol.
 func _gravity() -> float:

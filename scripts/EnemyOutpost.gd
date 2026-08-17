@@ -28,6 +28,14 @@ func take_damage(amount: int, _attacker_pos: Vector3 = Vector3.ZERO) -> void:
 		hp = 0.0
 		_die()
 
+## Liste des caractéristiques affichées dans l'inspecteur (clic sur l'avant-poste).
+func characteristics() -> Array:
+	return [
+		["Rôle", "Avant-poste ennemi (à piller)"],
+		["Vie (endurance)", "%d / %d" % [int(hp), int(max_hp)]],
+		["Butin (à la destruction)", "or 60 · pierre 45 · nourriture 30"],
+	]
+
 func _die() -> void:
 	_dead = true
 	died.emit(self)
