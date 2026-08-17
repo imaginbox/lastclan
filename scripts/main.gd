@@ -93,6 +93,9 @@ var _troop_info: Label = null
 var _troop_worker_label: Label = null
 var _troop_soldier_label: Label = null
 var _troop_archer_label: Label = null
+var _formation_ring_button: Button = null
+var _formation_line_button: Button = null
+var _formation_column_button: Button = null
 var _unit_role_lbl: Label = null
 var _unit_hp_lbl: Label = null
 var _unit_state_lbl: Label = null
@@ -2537,6 +2540,25 @@ func _refresh_troop_panel() -> void:
 	_troop_worker_label.text = "Paysans : %d  (dispo %d)" % [workers, free_workers]
 	_troop_soldier_label.text = "Soldats : %d  (dispo %d)" % [soldiers, free_soldiers]
 	_troop_archer_label.text = "Archers : %d  (dispo %d)" % [archers, free_archers]
+	# Met en surbrillance la formation active.
+	var cur_f: int = h.get("formation")
+	if _formation_ring_button != null:
+		_highlight_formation_button(_formation_ring_button, cur_f == Hero.Formation.RING)
+		_highlight_formation_button(_formation_line_button, cur_f == Hero.Formation.FRONT_LINE)
+		_highlight_formation_button(_formation_column_button, cur_f == Hero.Formation.COLUMN)
+
+## Applique un style "actif" ou "normal" à un bouton de formation.
+func _highlight_formation_button(btn: Button, active: bool) -> void:
+	if active:
+		btn.add_theme_color_override("font_color", Color(0.05, 0.05, 0.05))
+		btn.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0))
+		btn.add_theme_color_override("normal", Color(0.95, 0.85, 0.35))
+		btn.add_theme_color_override("hover", Color(0.98, 0.9, 0.5))
+	else:
+		btn.remove_theme_color_override("normal")
+		btn.remove_theme_color_override("hover")
+		btn.remove_theme_color_override("font_shadow_color")
+		btn.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95))
 
 ## Compte les unités du type donné non encore assignées à [hero].
 func _count_free_units(kind: int, hero: Node) -> int:
@@ -2628,6 +2650,12 @@ func _on_troop_archer_dec() -> void:
 		_notify("Aucun archer dans la troupe.")
 		return
 	h.call("unassign_unit", u)
+	_refresh_troop_panel()
+
+func _on_formation_picked(mode: int) -> void:
+	if _troop_hero == null or not is_instance_valid(_troop_hero):
+		return
+	_troop_hero.call("set_formation", mode)
 	_refresh_troop_panel()
 
 ## Trouve une unité libre du type donné pour l'assigner au héros.
@@ -3170,6 +3198,37 @@ func _build_troop_panel(layer: CanvasLayer) -> void:
 	aplus.pressed.connect(_on_troop_archer_inc)
 	arow.add_child(aplus)
 	tv.add_child(arow)
+	# Ligne formation : anneau / ligne / colonne.
+	var frow := HBoxContainer.new()
+	frow.add_theme_constant_override("separation", int(6 * _ui_scale))
+	var flbl := Label.new()
+	flbl.text = "Formation :"
+	flbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flbl.add_theme_font_size_override("font_size", int(14 * _ui_scale))
+	flbl.add_theme_color_override("font_color", Color(0.9, 0.9, 0.75))
+	frow.add_child(flbl)
+	_formation_ring_button = Button.new()
+	_formation_ring_button.text = "Anneau"
+	_formation_ring_button.custom_minimum_size = Vector2(0, 32 * _ui_scale)
+	_formation_ring_button.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+	_stylize_coc_button(_formation_ring_button)
+	_formation_ring_button.pressed.connect(_on_formation_picked.bind(Hero.Formation.RING))
+	frow.add_child(_formation_ring_button)
+	_formation_line_button = Button.new()
+	_formation_line_button.text = "Ligne"
+	_formation_line_button.custom_minimum_size = Vector2(0, 32 * _ui_scale)
+	_formation_line_button.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+	_stylize_coc_button(_formation_line_button)
+	_formation_line_button.pressed.connect(_on_formation_picked.bind(Hero.Formation.FRONT_LINE))
+	frow.add_child(_formation_line_button)
+	_formation_column_button = Button.new()
+	_formation_column_button.text = "Colonne"
+	_formation_column_button.custom_minimum_size = Vector2(0, 32 * _ui_scale)
+	_formation_column_button.add_theme_font_size_override("font_size", int(13 * _ui_scale))
+	_stylize_coc_button(_formation_column_button)
+	_formation_column_button.pressed.connect(_on_formation_picked.bind(Hero.Formation.COLUMN))
+	frow.add_child(_formation_column_button)
+	tv.add_child(frow)
 	# Bouton conversion paysan -> soldat.
 	var conv := Button.new()
 	conv.text = "⚔ Convertir un paysan en soldat"

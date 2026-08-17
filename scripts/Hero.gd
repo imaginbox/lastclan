@@ -33,6 +33,7 @@ const HDV_BONUS_PER_LEVEL: float = 0.04       # +4% / niveau d'HDV
 
 enum UnitKind { VILLAGER, SOLDIER, ARCHER }
 enum ProfileKind { COMMANDER, GATHERER, STRATEGIST }
+enum Formation { RING, FRONT_LINE, COLUMN }
 
 @onready var nav_agent: NavigationAgent3D = $NavigationAgent3D
 @onready var anim_player: AnimationPlayer = null
@@ -54,6 +55,9 @@ var profile: int = ProfileKind.COMMANDER
 # --- Troupe assignée ---
 var _troop: Array = []          # unités (Villager/Soldier) assignées à ce héros
 var _formation_spots: Array = []  # offsets locaux de la formation (Vector3)
+
+## Formation actuellement sélectionnée (voir enum Formation).
+var formation: int = Formation.RING
 
 var _state: State = State.IDLE
 var _move_target: Vector3 = Vector3.ZERO
@@ -248,6 +252,25 @@ func troop_count(kind: int) -> int:
 ## Les spots restent indexés par _troop[i] (même ordre) pour le rappel.
 func _build_formation_spots() -> void:
 	_formation_spots.clear()
+	match formation:
+		Formation.FRONT_LINE:
+			_build_front_line()
+		Formation.COLUMN:
+			_build_column()
+		_:
+			_build_ring()
+
+## Choisit la formation de la troupe et la ré-applique immédiatement.
+func set_formation(mode: int) -> void:
+	if formation == mode:
+		return
+	formation = mode
+	_build_formation_spots()
+	_move_troop_to_formation()
+
+## Formation ANNEAU (défaut) : soldats en cercle autour du héros, paysans/archers
+## en arc protégé derrière. Si aucun combattant, tout le monde en anneau rond.
+func _build_ring() -> void:
 	var troop: Array = _troop
 	var soldier_count := 0
 	for u in troop:
@@ -291,6 +314,81 @@ func _build_formation_spots() -> void:
 				angle = back_center - half + spread * float(p_idx) / float(peasant_count - 1)
 			_formation_spots.append(_ring_spot(angle, rp))
 			p_idx += 1
+
+## Formation LIGNE : les combattants forment une rangée face au héros (-Z), les
+## paysans/archers se placent juste derrière (soutien protégé). Les spots restent
+## indexés dans l'ordre de _troop (impératif pour le rappel).
+func _build_front_line() -> void:
+	var troop: Array = _troop
+	var n := troop.size()
+	if n == 0:
+		return
+	var fighter_slots: Array = []   # positions rang avant (combattants), ordre
+	var support_slots: Array = []   # positions soutien (paysans), ordre
+	var fr_count := 0
+	var sp_count := 0
+	for u in troop:
+		if u is Soldier or u is Archer:
+			fr_count += 1
+		else:
+			sp_count += 1
+	if fr_count == 0:
+		# Aucun combattant : tout le monde sur une seule rangée face au héros.
+		var w_spacing: float = 1.0
+		for i in n:
+			support_slots.append(Vector3((float(i) - float(n - 1) * 0.5) * w_spacing, 0.0, -1.0))
+		for u in troop:
+			_formation_spots.append(support_slots.pop_front())
+		return
+	var fr_spacing: float = 0.85
+	var fr_z: float = -1.0
+	for i in fr_count:
+		fighter_slots.append(Vector3((float(i) - float(fr_count - 1) * 0.5) * fr_spacing, 0.0, fr_z))
+	var sp_spacing: float = 1.0
+	var sp_z: float = -1.0 + 1.5
+	for i in sp_count:
+		support_slots.append(Vector3((float(i) - float(sp_count - 1) * 0.5) * sp_spacing, 0.0, sp_z))
+	for u in troop:
+		if u is Soldier or u is Archer:
+			_formation_spots.append(fighter_slots.pop_front())
+		else:
+			_formation_spots.append(support_slots.pop_front())
+
+## Formation COLONNE : les combattants se placent en file devant le héros (-Z),
+## les paysans/archers en file derrière eux. Compacte, idéale en déplacement.
+func _build_column() -> void:
+	var troop: Array = _troop
+	var n := troop.size()
+	if n == 0:
+		return
+	var f_slots: Array = []
+	var s_slots: Array = []
+	var fr_count := 0
+	var sp_count := 0
+	for u in troop:
+		if u is Soldier or u is Archer:
+			fr_count += 1
+		else:
+			sp_count += 1
+	var spacing := 0.8
+	var front_z: float = -0.9   # avant du héros = -Z : la colonne commence là
+	for i in fr_count:
+		f_slots.append(Vector3(0.0, 0.0, front_z + float(i) * spacing))   # + => vers l'arrière (+Z)
+	var last_fighter_z: float = front_z + float(fr_count - 1) * spacing
+	var support_z: float = last_fighter_z + 0.4   # juste derrière le dernier combattant
+	for i in sp_count:
+		s_slots.append(Vector3(0.0, 0.0, support_z + float(i) * spacing))
+	for u in troop:
+		if u is Soldier or u is Archer:
+			if f_slots.is_empty():
+				_formation_spots.append(s_slots.pop_front())
+			else:
+				_formation_spots.append(f_slots.pop_front())
+		else:
+			if s_slots.is_empty():
+				_formation_spots.append(f_slots.pop_front())
+			else:
+				_formation_spots.append(s_slots.pop_front())
 
 ## Point LOCAL (référentiel héros, avant = -Z) sur un anneau : angle `a`, rayon `radius`.
 func _ring_spot(a: float, radius: float) -> Vector3:
