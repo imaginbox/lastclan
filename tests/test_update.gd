@@ -42,3 +42,46 @@ func test_bat_script_content() -> void:
 		push_error("CHECK FAILED: le .bat doit nettoyer update.zip avec %SRC% simple")
 	if bat.contains("%%"):
 		push_error("CHECK FAILED: '%%' résiduel dans le .bat (échappement mal géré)")
+
+# ======================== _parse_release (décision de mise à jour) =============
+
+const NEWER_BODY := '{"tag_name":"v1.1.0","body":"Corrections et nouveautés","assets":[{"name":"TheLastClan_Windows.zip","browser_download_url":"https://x/z.zip","size":123456}]}'
+
+func test_parse_release_newer_returns_update() -> void:
+	var r: Dictionary = UpdateManagerCore._parse_release(NEWER_BODY.to_utf8_buffer())
+	if r.is_empty():
+		push_error("CHECK FAILED: une release plus récente doit déclencher une mise à jour")
+		return
+	if r["version"] != "1.1.0":
+		push_error("CHECK FAILED: version attendue 1.1.0, reçue " + str(r["version"]))
+	if r["url"] != "https://x/z.zip":
+		push_error("CHECK FAILED: url mal extraite")
+	if r["size"] != 123456:
+		push_error("CHECK FAILED: taille mal extraite")
+	if r["notes"] != "Corrections et nouveautés":
+		push_error("CHECK FAILED: notes mal extraites")
+
+func test_parse_release_equal_no_update() -> void:
+	var body := '{"tag_name":"v1.0.0","assets":[{"name":"TheLastClan_Windows.zip","browser_download_url":"https://x/z.zip","size":1}]}'
+	if not UpdateManagerCore._parse_release(body.to_utf8_buffer()).is_empty():
+		push_error("CHECK FAILED: version égale -> aucune mise à jour")
+
+func test_parse_release_older_no_update() -> void:
+	var body := '{"tag_name":"v0.9.0","assets":[{"name":"TheLastClan_Windows.zip","browser_download_url":"https://x/z.zip","size":1}]}'
+	if not UpdateManagerCore._parse_release(body.to_utf8_buffer()).is_empty():
+		push_error("CHECK FAILED: version plus vieille -> aucune mise à jour")
+
+func test_parse_release_ignores_non_windows_asset() -> void:
+	var body := '{"tag_name":"v1.2.0","assets":[{"name":"index.html","browser_download_url":"https://x/index.html","size":1},{"name":"TheLastClan_Windows.zip","browser_download_url":"https://x/w.zip","size":99}]}'
+	var r: Dictionary = UpdateManagerCore._parse_release(body.to_utf8_buffer())
+	if r.is_empty() or r["url"] != "https://x/w.zip":
+		push_error("CHECK FAILED: doit choisir l'asset Windows .zip")
+
+func test_parse_release_no_zip_empty() -> void:
+	var body := '{"tag_name":"v1.2.0","assets":[{"name":"index.html","browser_download_url":"https://x/index.html","size":1}]}'
+	if not UpdateManagerCore._parse_release(body.to_utf8_buffer()).is_empty():
+		push_error("CHECK FAILED: aucun .zip -> aucune mise à jour")
+
+func test_parse_release_invalid_empty() -> void:
+	if not UpdateManagerCore._parse_release("pas du json".to_utf8_buffer()).is_empty():
+		push_error("CHECK FAILED: JSON invalide -> aucune mise à jour")

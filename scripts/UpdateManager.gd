@@ -74,11 +74,24 @@ func _on_check_completed(result: int, code: int, _headers: PackedStringArray, bo
 	_check_done = true
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		return  # Hors-ligne ou aucune release : on reste silencieux.
+	var upd := _parse_release(body)
+	if upd.is_empty():
+		return
+	_update_url = String(upd["url"])
+	_update_size = int(upd["size"])
+	var notes := String(upd["notes"])
+	update_available.emit(upd["version"], notes, _update_size)
+	_show_panel(upd["version"], notes, _update_size)
+
+## Analyse la réponse JSON d'une Release GitHub. Renvoie un dict
+## {version, url, size, notes} si une mise à jour PLUS RÉCENTE existe, sinon un
+## dict vide. Pure et statique : unit-testable sans arbre de scène.
+static func _parse_release(body: PackedByteArray) -> Dictionary:
 	var json := JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK:
-		return
+		return {}
 	var data: Dictionary = json.data
-	var remote: String = String(data.get("tag_name", "v0.0.0")).trim_prefix("v")
+	var remote := String(data.get("tag_name", "v0.0.0")).trim_prefix("v")
 	var url := ""
 	var size := 0
 	for a: Variant in data.get("assets", []):
@@ -87,14 +100,15 @@ func _on_check_completed(result: int, code: int, _headers: PackedStringArray, bo
 			url = String(a.get("browser_download_url", ""))
 			size = int(a.get("size", 0))
 	if url.is_empty():
-		return
+		return {}
 	if not version_newer(remote, APP_VERSION):
-		return
-	_update_url = url
-	_update_size = size
-	var notes := String(data.get("body", ""))
-	update_available.emit(remote, notes, size)
-	_show_panel(remote, notes, size)
+		return {}
+	return {
+		"version": remote,
+		"url": url,
+		"size": size,
+		"notes": String(data.get("body", "")),
+	}
 
 ## Lance le téléchargement puis l'installation de la mise à jour.
 func download_and_install() -> void:
