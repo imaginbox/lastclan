@@ -107,3 +107,32 @@ func test_is_member_busy_detects_gathering() -> void:
 	if h.call("_is_member_busy", v):
 		push_error("CHECK FAILED: paysan IDLE considéré occupé à tort")
 	v.queue_free()
+
+## Bug "invalid previously freed instance" : quand un membre de la troupe meurt,
+## sa référence reste dans _troop, et l'affectation typée 'var u: Node = _troop[i]'
+## dans _physics_process levait une erreur à chaque frame (combat figé). Ce test
+## vérifie que prune_dead_troop() retire bien la référence libérée avant toute
+## affectation typée, donc que le combat ne fige plus.
+func test_prune_dead_troop_removes_freed_member() -> void:
+	var h := _make_hero()
+	h.call("unassign_all")
+	var v: Node = load("res://scripts/Villager.gd").new()
+	add_child(v)
+	h.call("assign_unit", v)
+	if h.call("troop_size") != 1:
+		push_error("CHECK FAILED: troupe non remplie avant libération")
+	# Le paysan meurt (libéré) sans être retiré manuellement de la troupe.
+	v.queue_free()
+	await get_tree().process_frame
+	# Sans le correctif, 'var u: Node = _troop[0]' lèverait "invalid freed instance".
+	# prune_dead_troop() (appelé en tête de _physics_process) doit purger la réf.
+	h.call("prune_dead_troop")
+	if h.call("troop_size") != 0:
+		push_error("CHECK FAILED: prune_dead_troop n'a pas retiré la référence libérée")
+	# Après purge, l'affectation typée de _physics_process est sûre (aucune erreur).
+	var arr: Array = h.get("_troop")
+	for i in arr.size():
+		var u: Node = arr[i]
+		if not is_instance_valid(u):
+			push_error("CHECK FAILED: référence libérée encore présente après purge")
+
