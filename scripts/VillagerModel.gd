@@ -92,13 +92,18 @@ func _add_animation(src_path: String, target_name: String) -> void:
 	tmp.free()
 
 ## Applique la teinte (si différente de blanc) sur tous les matériaux du mesh.
+## DUPLIQUE le matériau de base du .glb pour CONSERVER la texture du personnage
+## (visage, vêtements) et la teinter — au lieu de la remplacer par une couleur
+## pleine (qui transformait le modèle en silhouette unie sans aucun détail).
 func _apply_tint() -> void:
 	if tint.is_equal_approx(Color.WHITE):
 		return
 	var char1 := _model.find_child("char1", true, false) as MeshInstance3D
 	if char1 == null:
 		return
-	var mat := StandardMaterial3D.new()
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	if char1.get_active_material(0) is StandardMaterial3D:
+		mat = (char1.get_active_material(0) as StandardMaterial3D).duplicate()
 	mat.albedo_color = tint
 	char1.material_override = mat
 

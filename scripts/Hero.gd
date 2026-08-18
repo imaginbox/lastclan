@@ -615,7 +615,13 @@ func gain_xp(amount: int) -> void:
 func set_selected(on: bool) -> void:
 	_apply_selection_fx(on)
 
-## Applique la mise en évidence (émission lumineuse) sur le modèle du héros.
+## Applique la mise en évidence (léger halo d'émission) sur le modèle du héros.
+## DUPLIQUE le matériau de base pour CONSERVER la texture — au lieu d'une
+## silhouette jaune unie (bug visuel quand l'émission pleine masquait le modèle).
+## Sauvegarde/restaure le matériau de base pour ne pas perdre la teinte dorée.
+var _sel_material: StandardMaterial3D = null
+var _sel_base_material: Material = null
+
 func _apply_selection_fx(on: bool) -> void:
 	var model := get_node_or_null("Model") as VillagerModel
 	if model == null:
@@ -624,16 +630,20 @@ func _apply_selection_fx(on: bool) -> void:
 	if mesh == null:
 		return
 	if on:
-		var mat := mesh.material_override
-		if mat == null:
-			mat = StandardMaterial3D.new()
-			mesh.material_override = mat
-		mat.emission_enabled = true
-		mat.emission = Color(1.0, 0.9, 0.3)
-		mat.emission_energy_multiplier = 1.2
+		if _sel_base_material == null:
+			_sel_base_material = mesh.material_override
+		if _sel_material == null:
+			var base: StandardMaterial3D = StandardMaterial3D.new()
+			if mesh.get_active_material(0) is StandardMaterial3D:
+				base = (mesh.get_active_material(0) as StandardMaterial3D).duplicate()
+			base.emission_enabled = true
+			base.emission = Color(1.0, 0.85, 0.3)
+			base.emission_energy_multiplier = 0.3
+			_sel_material = base
+		mesh.material_override = _sel_material
 	else:
-		if mesh.material_override != null:
-			mesh.material_override.emission_enabled = false
+		if mesh.material_override == _sel_material:
+			mesh.material_override = _sel_base_material
 
 ## Affiche/masque un repère (cercle) sous chaque membre de la troupe — indique
 ## visuellement qu'ils sont « dirigés » par ce héros (sélection du héros).

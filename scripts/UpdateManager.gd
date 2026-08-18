@@ -1,4 +1,5 @@
 extends Node
+class_name UpdateManagerCore
 ## Auto-mise à jour (Desktop uniquement).
 ##
 ## Au lancement, le jeu interroge les Releases GitHub du dépôt. Si une version

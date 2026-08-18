@@ -283,16 +283,17 @@ func attack_node(target: Node3D) -> void:
 
 func set_selected(on: bool) -> void:
 	# Met en évidence le modèle (mesh "char1") via une émission lumineuse.
-	var model := get_node_or_null("Model") as VillagerModel
-	if model == null:
-		return
-	var mesh := model.find_child("char1", true, false) as MeshInstance3D
+	# Sauvegarde/restaure le matériau de base pour NE PAS perdre la teinte
+	# (VillagerModel.tint) à la désélection.
+	var mesh := _main_mesh()
 	if mesh == null:
 		return
 	if on:
+		if _sel_base_material == null:
+			_sel_base_material = mesh.material_override
 		mesh.material_override = _sel_mat()
-	elif mesh.material_override != null and _is_sel_material(mesh.material_override):
-		mesh.material_override = null
+	elif mesh.material_override == _sel_material:
+		mesh.material_override = _sel_base_material
 
 ## Ordre de déplacement (clic droit sur le sol vide) : le paysan s'y rend
 ## puis s'arrête au repos (il interrompt sa tâche de récolte en cours).
@@ -727,15 +728,27 @@ func set_state(s: State) -> void:
 			anim_player.stop() # Stoppe l'animation en cours (Course) immédiatement
 
 var _sel_material: StandardMaterial3D = null
+var _sel_base_material: Material = null
 
+## Matériau de sélection : DUPLIQUE le matériau de base du modèle (pour conserver
+## sa texture) et ajoute un léger halo d'émission — au lieu d'une silhouette unie.
 func _sel_mat() -> StandardMaterial3D:
 	if _sel_material == null:
-		_sel_material = StandardMaterial3D.new()
-		_sel_material.albedo_color = Color(0.3, 1.0, 0.35)
-		_sel_material.emission_enabled = true
-		_sel_material.emission = Color(0.3, 1.0, 0.35)
-		_sel_material.emission_energy = 2.0
+		var mesh := _main_mesh()
+		var base: StandardMaterial3D = StandardMaterial3D.new()
+		if mesh != null and mesh.get_active_material(0) is StandardMaterial3D:
+			base = (mesh.get_active_material(0) as StandardMaterial3D).duplicate()
+		base.emission_enabled = true
+		base.emission = Color(0.3, 1.0, 0.35)
+		base.emission_energy_multiplier = 0.35
+		_sel_material = base
 	return _sel_material
+
+func _main_mesh() -> MeshInstance3D:
+	var model := get_node_or_null("Model") as VillagerModel
+	if model == null:
+		return null
+	return model.find_child("char1", true, false) as MeshInstance3D
 
 func _is_sel_material(mat: Material) -> bool:
 	return mat == _sel_material
