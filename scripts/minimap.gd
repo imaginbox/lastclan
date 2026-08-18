@@ -107,3 +107,24 @@ func _draw() -> void:
 	for r in tree.get_nodes_in_group("resource"):
 		var p3: Vector3 = r.global_position
 		draw_rect(Rect2(_to_local(p3) - Vector2(1, 1), Vector2(2, 2)), Color(1.0, 0.85, 0.3))
+
+	# Rectangle de vue caméra : projette les 4 coins de l'écran au sol et les
+	# dessine sur la minimap (cœur de minimap RTS — on voit où on est).
+	if game != null:
+		var cam := game.get("_camera") as Camera3D
+		if cam != null:
+			var vp := get_viewport().get_visible_rect().size
+			var corners := [
+				Vector2.ZERO, Vector2(vp.x, 0.0), vp, Vector2(0.0, vp.y)
+			]
+			var pts := PackedVector2Array()
+			for c: Vector2 in corners:
+				var from := cam.project_ray_origin(c)
+				var dir := cam.project_ray_normal(c)
+				if absf(dir.y) < 0.0001:
+					continue
+				var t := -from.y / dir.y
+				pts.append(_to_local(from + dir * t))
+			if pts.size() == 4:
+				draw_colored_polygon(pts, Color(1, 1, 1, 0.10))
+				draw_polyline(pts + PackedVector2Array([pts[0]]), Color(1, 1, 1, 0.6), 1.5)
