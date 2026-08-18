@@ -115,6 +115,7 @@ var _unit_role_lbl: Label = null
 var _unit_attr_box: VBoxContainer = null
 # --- Échelle UI (plus grande sur mobile) ---
 var _ui_scale: float = 1.0
+var _minimap: Control = null
 ## True si l'écran est en portrait (plus haut que large) — guide la répartition
 ## de l'UI CoC responsive (barre ressources en haut, dock en bas).
 var _is_portrait: bool = false
@@ -1766,6 +1767,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				# Clic sur la minimap : on déplace la caméra, pas de sélection.
+				if _minimap != null and _minimap.get_global_rect().has_point(event.position):
+					(_minimap as Minimap).focus_at(event.position)
+					return
 				if _ghost_active():
 					return  # le clic sert à poser le bâtiment
 				_press_pos = event.position
@@ -2371,10 +2376,34 @@ func show_float_text(world_pos: Vector3, text: String, color: Color) -> void:
 func show_damage_float(world_pos: Vector3, amount: int) -> void:
 	show_float_text(world_pos + Vector3(0, 0.4, 0), "-%d" % amount, Color(1.0, 0.25, 0.25))
 
+## Position actuelle de la base du joueur (lue par la minimap).
+func get_base_origin() -> Vector3:
+	return _base_origin
+
+## Déplace la caméra vers un point monde (clic sur la minimap).
+func _focus_camera(world: Vector3) -> void:
+	if _camera != null and _camera.has_method("set_pivot"):
+		_camera.call("set_pivot", world)
+
 func _setup_hud() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 40
 	add_child(layer)
+	# ===== Minimap (coin bas-droite) : unités, ressources, ennemis, base.
+	var minimap := Minimap.new()
+	minimap.name = "Minimap"
+	minimap.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	minimap.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	minimap.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	var mm_size := int(150.0 * _ui_scale)
+	minimap.offset_left = -12.0 - mm_size
+	minimap.offset_top = -12.0 - mm_size
+	minimap.offset_right = -12.0
+	minimap.offset_bottom = -12.0
+	minimap.custom_minimum_size = Vector2(mm_size, mm_size)
+	minimap.setup(GRID_HALF, self)
+	_minimap = minimap
+	layer.add_child(minimap)
 	# ===== Flèche de raid : pointe vers l'avant-poste ennemi quand il est hors
 	# écran, pour que le joueur le repère et puisse le piller. Masquée quand le
 	# cœur est détruit ou déjà visible à l'écran.
