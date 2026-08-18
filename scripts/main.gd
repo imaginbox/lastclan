@@ -1011,6 +1011,21 @@ func _on_outpost_died(outpost: Node) -> void:
 		realm.call("activity", 3.0)
 	_raid_outpost = null
 	_update_raid_indicator()
+	# Le poste est reconstruit après un délai : les raids sont répétables.
+	if not Lobby.is_dedicated_server:
+		_outpost_respawn_left = OUTPOST_RESPAWN_TIME
+		_notify("Un avant-poste ennemi sera reconstruit dans %d s." % OUTPOST_RESPAWN_TIME)
+
+## Délai (s) avant reconstruction de l'avant-poste ennemi après sa destruction.
+const OUTPOST_RESPAWN_TIME := 90.0
+var _outpost_respawn_left: float = 0.0
+
+## Reconstruit un nouvel avant-poste ennemi (avec gardes) après le délai.
+func _respawn_outpost() -> void:
+	if _raid_outpost != null and is_instance_valid(_raid_outpost):
+		return
+	_spawn_enemy_outpost()
+	_notify("Un avant-poste ennemi a été reconstruit !")
 
 ## Met à jour la flèche de raid : la place en bord d'écran, orientée vers
 ## l'avant-poste ennemi, tant que celui-ci existe et est hors de la caméra.
@@ -1436,6 +1451,13 @@ func _update_all_local_health_bars() -> void:
 				var mh: float = float(child.get("max_hp")) if child.get("max_hp") != null else 100.0
 				var ld: int = int(child.get("last_damage_ms")) if child.get("last_damage_ms") != null else -100000
 				_update_health_bar(hb, hp, mh, ld)
+
+	# Décompte de la reconstruction de l'avant-poste ennemi (raids répétables).
+	if _outpost_respawn_left > 0.0:
+		_outpost_respawn_left -= 0.15
+		if _outpost_respawn_left <= 0.0:
+			_outpost_respawn_left = 0.0
+			_respawn_outpost()
 
 ## Crée une unité distante avec le VRAI modèle (paysan/soldat) + cercle rouge + barre de vie.
 func _make_remote_unit(owner_id: int, index: int, kind: int) -> RemoteUnit:

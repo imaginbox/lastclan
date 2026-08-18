@@ -14,9 +14,14 @@ var _dead: bool = false
 func is_dead() -> bool:
 	return _dead or hp <= 0.0
 
-## Butin versé à la destruction (or / pierre / nourriture).
+## Butin versé à la destruction (or / pierre / nourriture). Montants variables
+## pour rendre chaque raid un peu différent et plus gratifiant.
 func loot() -> Array:
-	return [["gold", 60], ["stone", 45], ["food", 30]]
+	return [
+		["gold", randi_range(50, 70)],
+		["stone", randi_range(35, 55)],
+		["food", randi_range(20, 40)],
+	]
 
 ## Reçoit les dégâts des unités du joueur (même signature que les créatures).
 func take_damage(amount: int, _attacker_pos: Vector3 = Vector3.ZERO) -> void:
@@ -33,7 +38,7 @@ func characteristics() -> Array:
 	return [
 		["Rôle", "Avant-poste ennemi (à piller)"],
 		["Vie (endurance)", "%d / %d" % [int(hp), int(max_hp)]],
-		["Butin (à la destruction)", "or 60 · pierre 45 · nourriture 30"],
+		["Butin (à la destruction)", "or 50-70 · pierre 35-55 · nourriture 20-40"],
 	]
 
 func _die() -> void:
