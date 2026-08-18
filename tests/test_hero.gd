@@ -7,6 +7,11 @@ extends Node
 
 var hero: Node = null
 
+var _died_spy_args: Array = []
+
+func _on_died_spy(n: Node) -> void:
+	_died_spy_args.append(n)
+
 func _make_hero() -> Node:
 	if hero != null:
 		return hero
@@ -135,4 +140,22 @@ func test_prune_dead_troop_removes_freed_member() -> void:
 		var u: Node = arr[i]
 		if not is_instance_valid(u):
 			push_error("CHECK FAILED: référence libérée encore présente après purge")
+
+## Bug "Method expected 1 argument(s)": le signal died du héros est émis sans
+## argument (died.emit()), alors que le handler main.gd _on_hero_died(_hero_node)
+## attend 1. Le correctif connecte via bind(h). Ce test reproduit le pattern :
+## sans bind, connecter died (0 arg) à un handler à 1 arg lève une erreur.
+func test_hero_died_connects_bound_single_arg_handler() -> void:
+	var h := _make_hero()
+	_died_spy_args.clear()
+	# Même connexion que main.gd : signal died (0 arg) -> handler à 1 arg VIA bind.
+	h.died.connect(_on_died_spy.bind(h))
+	var hp: int = h.get("hp")
+	h.call("take_damage", hp)  # hp<=0 -> die() -> died.emit() (0 arg)
+	await get_tree().process_frame
+	if _died_spy_args.is_empty():
+		push_error("CHECK FAILED: died non émis à la mort du héros")
+	elif _died_spy_args[0] != h:
+		push_error("CHECK FAILED: died n'a pas transmis le nœud héros (bind)")
+
 

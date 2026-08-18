@@ -857,7 +857,7 @@ func _spawn_hero() -> void:
 	# Cercle au sol DORÉ distinct + barre de vie, pour bien repérer le héros.
 	h.add_child(_make_ground_circle(Color(1.0, 0.82, 0.15)))
 	h.add_child(_make_health_bar_node())
-	h.died.connect(_on_hero_died)
+	h.died.connect(_on_hero_died.bind(h))
 	_hero_active = true
 	_hero_respawn_left = 0.0
 	_refresh_hero_manager()
