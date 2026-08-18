@@ -981,10 +981,12 @@ func _spawn_enemy_outpost() -> void:
 	core.add_child(_make_health_bar_node())
 	core.died.connect(_on_outpost_died)
 	# Quelques gardes hostiles autour du cœur (ils défendent l'avant-poste).
-	for i in 4:
+	# Le nombre augmente à chaque reconstruction : raids progressivement plus durs.
+	var guard_count := 4 + mini(_outpost_respawn_count, 4)
+	for i in guard_count:
 		var g: Node3D = MONSTER_SCENE.instantiate()
 		g.set("type", Monster.Type.BEAR if i == 0 else Monster.Type.WOLF)
-		g.position = pos + Vector3(cos(TAU * i / 4.0) * 4.5, 0.0, sin(TAU * i / 4.0) * 4.5)
+		g.position = pos + Vector3(cos(TAU * i / float(guard_count)) * 4.5, 0.0, sin(TAU * i / float(guard_count)) * 4.5)
 		_wildlife_root.add_child(g)
 		g.add_to_group("enemy")
 		g.add_child(_make_ground_circle(Color(0.9, 0.2, 0.15)))
@@ -1011,14 +1013,18 @@ func _on_outpost_died(outpost: Node) -> void:
 		realm.call("activity", 3.0)
 	_raid_outpost = null
 	_update_raid_indicator()
-	# Le poste est reconstruit après un délai : les raids sont répétables.
+	# Le poste est reconstruit après un délai : les raids sont répétables et les
+	# gardes de plus en plus nombreux.
 	if not Lobby.is_dedicated_server:
+		_outpost_respawn_count += 1
 		_outpost_respawn_left = OUTPOST_RESPAWN_TIME
 		_notify("Un avant-poste ennemi sera reconstruit dans %d s." % OUTPOST_RESPAWN_TIME)
 
 ## Délai (s) avant reconstruction de l'avant-poste ennemi après sa destruction.
 const OUTPOST_RESPAWN_TIME := 90.0
 var _outpost_respawn_left: float = 0.0
+## Nombre de fois que l'avant-poste a été détruit : augmente les gardes au respawn.
+var _outpost_respawn_count: int = 0
 
 ## Reconstruit un nouvel avant-poste ennemi (avec gardes) après le délai.
 func _respawn_outpost() -> void:
