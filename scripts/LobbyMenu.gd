@@ -256,16 +256,16 @@ func _build_ui() -> void:
 	_offline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	actions.add_child(_offline_button)
 
-	# ---- Outils admin (réservés : seuls visibles après déverrouillage admin) ----
-	# Éditeur de carte + assignation d'une carte personnalisée à ce serveur/royaume.
-	if _admin_unlocked():
-		var editor_btn := _big_button("🗺️ " + _langs().t("ui.map_editor"), _on_editor_pressed, false)
-		editor_btn.custom_minimum_size = Vector2(0, _gd(44))
-		editor_btn.add_theme_font_size_override("font_size", _gd(15))
-		editor_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		actions.add_child(editor_btn)
+	# ---- Éditeur de carte : toujours accessible pour créer/modifier des cartes.
+	var editor_btn := _big_button("🗺️ " + _langs().t("ui.map_editor"), _on_editor_pressed, false)
+	editor_btn.custom_minimum_size = Vector2(0, _gd(44))
+	editor_btn.add_theme_font_size_override("font_size", _gd(15))
+	editor_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	actions.add_child(editor_btn)
 
-		# Assignation d'une carte au serveur : liste des cartes enregistrées.
+	# ---- Assignation d'une carte au serveur : réservée aux admins (modifie le gameplay).
+	if _admin_unlocked():
+		# Liste des cartes enregistrées à affecter à ce serveur/royaume.
 		var map_row := HBoxContainer.new()
 		map_row.add_theme_constant_override("separation", _gd(8))
 		actions.add_child(map_row)

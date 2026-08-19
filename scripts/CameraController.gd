@@ -9,7 +9,7 @@ extends Camera3D
 
 @export var zoom_speed: float = 6.0        # variation de taille (cran de molette)
 @export var min_size: float = 8.0
-@export var max_size: float = 220.0        # dézoom jusqu'à voir la carte entière (400 m)
+@export var max_size: float = 460.0        # dézoom jusqu'à voir la carte entière (400 m + marge)
 @export var pitch_deg: float = 50.0        # inclinaison iso (plus bas = vue plus horizontale)
 
 ## Bornes du monde (½ côte de la carte) pour ne pas paner hors de la map.

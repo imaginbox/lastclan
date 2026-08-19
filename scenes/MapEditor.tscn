@@ -14,7 +14,7 @@ script = ExtResource("1_mapeditor")
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 250, 0.01)
 projection = 1
-size = 210.0
+size = 460.0
 near = 1.0
 far = 3000.0
 

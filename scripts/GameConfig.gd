@@ -249,7 +249,7 @@ const REGISTRY: Array = [
 	{"key": "camera.zoom_min", "kind": Kind.FLOAT, "cat": "Caméra", "sub": "Zoom",
 	 "label": "Zoom — valeur minimale", "def": 8.0, "min": 1.0, "max": 100.0, "step": 1.0},
 	{"key": "camera.zoom_max", "kind": Kind.FLOAT, "cat": "Caméra", "sub": "Zoom",
-	 "label": "Zoom — valeur maximale", "def": 220.0, "min": 10.0, "max": 600.0, "step": 5.0},
+	 "label": "Zoom — valeur maximale", "def": 460.0, "min": 10.0, "max": 600.0, "step": 5.0},
 	{"key": "camera.vitesse_zoom", "kind": Kind.FLOAT, "cat": "Caméra", "sub": "Zoom",
 	 "label": "Vitesse du zoom (molette)", "def": 6.0, "min": 1.0, "max": 30.0, "step": 1.0},
 	{"key": "camera.inclinaison", "kind": Kind.FLOAT, "cat": "Caméra", "sub": "Angle de vue",

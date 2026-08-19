@@ -276,7 +276,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Zoom orthographique : molette. size = hauteur visible du monde.
 func _zoom_camera(dir: int) -> void:
-	_cam.size = clampf(_cam.size * (1.0 + 0.12 * float(dir)), 25.0, 320.0)
+	_cam.size = clampf(_cam.size * (1.0 + 0.12 * float(dir)), 25.0, 460.0)
 
 ## Déplacement de la caméra : glisser avec le clic molette (relatif à l'écran).
 func _pan_camera(rel: Vector2) -> void:
