@@ -77,6 +77,7 @@ func _build_ui() -> void:
 	top_box.add_child(_btn("Nouveau", _on_new))
 	top_box.add_child(_btn("Charger", _on_load))
 	top_box.add_child(_btn("Sauvegarder", _on_save))
+	top_box.add_child(_btn("Retour", _on_back))
 
 	_status = Label.new()
 	_status.text = ""
@@ -324,6 +325,10 @@ func _on_load() -> void:
 		_status.text = "Chargé: " + chosen
 	else:
 		_status.text = "Échec chargement " + chosen
+
+## Retour au menu principal.
+func _on_back() -> void:
+	get_tree().change_scene_to_file("res://scenes/LobbyMenu.tscn")
 
 func _on_save() -> void:
 	DirAccess.make_dir_recursive_absolute(MAPS_DIR)

@@ -256,6 +256,15 @@ func _build_ui() -> void:
 	_offline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	actions.add_child(_offline_button)
 
+	# « Éditeur de carte » : ouvre l'outil de création de carte (peindre les
+	# zones, placer décor/spawns, sauvegarder → la carte active remplace le monde
+	# procédural au prochain lancement du jeu).
+	var editor_btn := _big_button("🗺️ " + _langs().t("ui.map_editor"), _on_editor_pressed, false)
+	editor_btn.custom_minimum_size = Vector2(0, _gd(44))
+	editor_btn.add_theme_font_size_override("font_size", _gd(15))
+	editor_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	actions.add_child(editor_btn)
+
 	# ---- Aide / Comment jouer (repliable).
 	var help_header := _big_button("❓ " + _langs().t("help.title"), _on_toggle_help, false)
 	help_header.custom_minimum_size = Vector2(0, _gd(48))
@@ -515,6 +524,11 @@ func _on_offline_pressed() -> void:
 	_on_status("Mode hors ligne — lancement de la partie en solo…")
 	_auto_launch = false
 	_launch_game()
+
+## Ouvre l'éditeur de carte (MapEditor.tscn) depuis le menu.
+func _on_editor_pressed() -> void:
+	_apply_name()
+	get_tree().change_scene_to_file("res://scenes/MapEditor.tscn")
 
 ## Bascule vers la scène de jeu Main.tscn.
 func _launch_game() -> void:

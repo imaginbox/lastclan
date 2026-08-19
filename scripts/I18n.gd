@@ -42,6 +42,7 @@ const STRINGS := {
 	"app.title": {"en": "The Last Clan", "fr": "The Last Clan"},
 	"ui.name": {"en": "Your name", "fr": "Votre nom"},
 	"ui.play_offline": {"en": "Play offline (solo)", "fr": "Jouer hors ligne (solo)"},
+	"ui.map_editor": {"en": "Map editor", "fr": "Éditeur de carte"},
 	"ui.choose_server": {"en": "Choose a server (kingdom)", "fr": "Choisir un serveur (royaume)"},
 	"ui.create_game": {"en": "Create a game", "fr": "Créer une partie"},
 	"ui.join_game": {"en": "Join a game", "fr": "Rejoindre une partie"},
