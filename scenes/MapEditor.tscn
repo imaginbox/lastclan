@@ -1,0 +1,34 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/map_editor.gd" id="1_mapeditor"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(400, 400)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(400, 1, 400)
+
+[node name="MapEditor" type="Node3D"]
+script = ExtResource("1_mapeditor")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 250, 0.01)
+projection = 1
+size = 210.0
+near = 1.0
+far = 3000.0
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 50, 0)
+shadow_enabled = true
+
+[node name="GroundMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="GroundBody" type="StaticBody3D" parent="."]
+[node name="Shape" type="CollisionShape3D" parent="GroundBody"]
+shape = SubResource("BoxShape3D_ground")
+
+[node name="DecorRoot" type="Node3D" parent="."]
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]

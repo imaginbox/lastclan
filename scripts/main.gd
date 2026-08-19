@@ -27,6 +27,10 @@ const GRID_HALF := 190.0
 const DECOR_MARGIN := 5.0
 const DRAG_SELECT_THRESHOLD := 8.0
 
+## Carte éditée active : si ce fichier existe, elle remplace la génération
+## procédurale du monde (terrain + décor), partagée par tous les joueurs.
+const ACTIVE_MAP := "res://maps/active.json"
+
 # ============ MONDES À BIOMES (rivières, désert, forêt, prairie) ============
 ## Type de biome en un point du monde. Tout est dérivé du seed de la room, donc
 ## IDENTIQUE pour tous les joueurs (monde partagé où l'on peut se rencontrer).
@@ -42,6 +46,10 @@ var _desert_r: float = 0.0
 var _forest_center: Vector3 = Vector3.ZERO
 var _forest_r: float = 0.0
 var _rivers: Array = []
+## Vrai quand une carte éditée (res://maps/active.json) remplace le monde procédural.
+var _map_loaded := false
+## Position de l'avant-poste ennemi définie par la carte (INF = défaut procédural).
+var _map_outpost_pos := Vector3.INF
 
 @onready var nav_region: NavigationRegion3D = $NavigationRegion3D
 @onready var villager_root: Node3D = $Units
@@ -310,6 +318,9 @@ func _spawn_world() -> void:
 	_world_spawned = true
 	# Prépare les régions de biomes + rivières (déterministe : même monde pour tous).
 	_init_biomes()
+	# Si une carte éditée est active, elle remplace le monde procédural : elle
+	# définit le sol (grille), le décor et la base (hors ligne) dès maintenant.
+	_map_loaded = _load_map_world()
 	# Répartit les ressources (positions absolues, identiques pour tous).
 	_spawn_resources()
 	# Serveur dédié : il génère le MONDE partagé (ressources, décor) pour que tous
@@ -321,10 +332,11 @@ func _spawn_world() -> void:
 		_spawn_villagers()
 		_spawn_wildlife()
 		_spawn_enemy_outpost()
-	_spawn_decor()
-	# Colorie le sol par biome + dessine les rivières + décor propre au biome.
-	_spawn_biome_ground()
-	_spawn_biome_decor()
+	if not _map_loaded:
+		_spawn_decor()
+		# Colorie le sol par biome + dessine les rivières + décor propre au biome.
+		_spawn_biome_ground()
+		_spawn_biome_decor()
 	# Les ressources initiales ont été posées AVANT les bâtiments (la garde
 	# _near_building ne voyait pas encore les constructions) : on les écarte à
 	# nouveau des bâtiments une fois ceux-ci en place.
@@ -923,6 +935,126 @@ func _cyl(radius: float, height: float, col: Color, at: Vector3) -> MeshInstance
 	mi.position = at
 	return mi
 
+## ============================ CARTE ÉDITÉE ============================
+## Charge la carte active (res://maps/active.json) : remplace le monde procédural.
+## Met le sol en mode grille (shader u_grid), fait apparaître le décor et définit
+## la base (hors ligne). Retourne vrai si une carte a été chargée.
+func _load_map_world() -> bool:
+	var tm := TerrainMap.load_from(ACTIVE_MAP)
+	if tm == null:
+		return false
+	# Sol en mode grille (carte peinte, transitions douces via filtre linéaire).
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://shaders/terrain.gdshader")
+	mat.set_shader_parameter("u_use_grid", true)
+	mat.set_shader_parameter("u_grid", tm.bake_color_texture())
+	for b in TerrainMap.TB.values():
+		mat.set_shader_parameter("u_col_" + _biome_uniform(b), TerrainMap.PALETTE[b])
+	var floor_mesh := get_node_or_null("NavigationRegion3D/Floor/Mesh") as MeshInstance3D
+	if floor_mesh != null:
+		floor_mesh.set_surface_override_material(0, mat)
+	# Décor défini par la carte.
+	_spawn_map_decor(tm)
+	# Base : hors ligne on prend le spawn de la carte ; en ligne chaque joueur
+	# garde sa propre base (Lobby.base_origin).
+	if not Lobby.is_online:
+		var b := tm.base_spawn()
+		_base_origin = Vector3(b["x"], 0.0, b["z"])
+	# Avant-poste ennemi : position définie par la carte si fournie.
+	for s in tm.spawns:
+		if s["kind"] == "outpost":
+			_map_outpost_pos = Vector3(s["x"], 0.0, s["z"])
+	return true
+
+func _biome_uniform(b: int) -> String:
+	match b:
+		TerrainMap.TB.FOREST: return "forest"
+		TerrainMap.TB.DESERT: return "desert"
+		TerrainMap.TB.WATER: return "water"
+		TerrainMap.TB.PATH: return "path"
+	return "grass"
+
+## Fait apparaître le décor de la carte (arbres, cactus, rochers, buissons...).
+func _spawn_map_decor(tm: TerrainMap) -> void:
+	for d in tm.decor:
+		var node: Node3D = _decor_node(str(d["type"]))
+		if node == null:
+			continue
+		node.position = Vector3(float(d["x"]), 0.0, float(d["z"]))
+		node.rotation_degrees.y = float(d["r"])
+		var s := float(d["s"])
+		node.scale = Vector3(s, s, s)
+		node.add_to_group("decor")
+		decor_root.add_child(node)
+
+func _decor_node(type: String) -> Node3D:
+	match type:
+		"tree":
+			var de := Decor.new()
+			de.build_tree()
+			return de
+		"grass":
+			var de2 := Decor.new()
+			de2.build_grass()
+			return de2
+		"cactus":
+			return _make_cactus()
+		"rock":
+			return _make_rock()
+		"bush":
+			return _make_bush()
+		"flower":
+			return _make_flower()
+	return null
+
+func _make_rock() -> Node3D:
+	var root := Node3D.new()
+	for i in 3:
+		root.add_child(_box(
+			randf_range(0.6, 1.0), randf_range(0.4, 0.7), randf_range(0.6, 1.0),
+			Color(0.52, 0.54, 0.58),
+			Vector3(randf_range(-0.5, 0.5), 0.25, randf_range(-0.5, 0.5))
+		))
+	return root
+
+func _make_bush() -> Node3D:
+	var root := Node3D.new()
+	var sp := SphereMesh.new()
+	sp.radius = 0.5
+	sp.height = 0.9
+	var mi := MeshInstance3D.new()
+	mi.mesh = sp
+	mi.position = Vector3(0, 0.45, 0)
+	mi.material_override = _solid_mat(Color(0.30, 0.50, 0.25))
+	root.add_child(mi)
+	return root
+
+func _make_flower() -> Node3D:
+	var root := Node3D.new()
+	var sp := SphereMesh.new()
+	sp.radius = 0.18
+	sp.height = 0.3
+	var mi := MeshInstance3D.new()
+	mi.mesh = sp
+	mi.position = Vector3(0, 0.18, 0)
+	mi.material_override = _solid_mat(Color(0.92, 0.42, 0.45))
+	root.add_child(mi)
+	return root
+
+func _box(w: float, h: float, d: float, col: Color, at: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(w, h, d)
+	mi.mesh = bm
+	mi.material_override = _solid_mat(col)
+	mi.position = at
+	return mi
+
+func _solid_mat(col: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	return m
+
 ## Directeur du monde : vérifie périodiquement la densité des ressources et fait
 ## apparaître de nouvelles sources aux emplacements libres quand elles se raréfient.
 func _world_director_tick() -> void:
@@ -1187,7 +1319,11 @@ func _loot_color(res: String) -> Color:
 ## village. Le cœur (EnemyOutpost) et les gardes sont dans le groupe "enemy" :
 ## on peut les attaquer au clic droit / A-Move comme la faune.
 func _spawn_enemy_outpost() -> void:
-	var pos := Vector3(_base_origin.x + 58.0, 0.0, _base_origin.z + 36.0)
+	var pos: Vector3
+	if _map_outpost_pos != Vector3.INF:
+		pos = _map_outpost_pos
+	else:
+		pos = Vector3(_base_origin.x + 58.0, 0.0, _base_origin.z + 36.0)
 	var core: Node3D = ENEMY_OUTPOST_SCENE.instantiate()
 	core.position = pos
 	_wildlife_root.add_child(core)

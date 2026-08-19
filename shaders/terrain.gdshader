@@ -14,6 +14,17 @@ uniform vec4 u_river[32];         // chaque segment = (x1, z1, x2, z2)
 uniform float u_river_width[32];
 uniform float u_half = 200.0;     // demi-taille du sol (400x400)
 
+// Mode "carte éditée" : on échantillonne une grille de biomes (u_grid) au lieu de
+// la disposition procédurale. La grille stocke la couleur palette par cellule ;
+// le filtre linéaire produit les transitions douces entre zones.
+uniform bool u_use_grid = false;
+uniform sampler2D u_grid : filter_linear;
+uniform vec3 u_col_grass = vec3(0.42, 0.66, 0.30);
+uniform vec3 u_col_forest = vec3(0.30, 0.52, 0.24);
+uniform vec3 u_col_desert = vec3(0.80, 0.71, 0.46);
+uniform vec3 u_col_water = vec3(0.20, 0.50, 0.85);
+uniform vec3 u_col_path = vec3(0.58, 0.47, 0.34);
+
 const float ZONE_FALL = 16.0;
 const float RIVER_FALL = 6.0;
 
@@ -102,22 +113,56 @@ vec3 water_tex(vec2 p) {
 	float wave = fbm(p * 1.6 + 11.0);    // reflets ondulés
 	return max(base * (1.0 + (wave - 0.5) * 0.16), vec3(0.0));
 }
+vec3 path_tex(vec2 p) {
+	vec3 base = vec3(0.58, 0.47, 0.34);
+	float ruts = fbm(p * 3.0 + 29.0);    // ornières / terre battue
+	return max(base * (1.0 + (ruts - 0.5) * 0.30), vec3(0.0));
+}
+
+// Trouve le biome dominant (le plus proche de la couleur palette échantillonnée).
+int dominant_biome(vec3 c) {
+	float dg = distance(c, u_col_grass);
+	float df = distance(c, u_col_forest);
+	float dd = distance(c, u_col_desert);
+	float dw = distance(c, u_col_water);
+	float dp = distance(c, u_col_path);
+	float m = min(min(min(min(dg, df), dd), dw), dp);
+	if (m == dw) return 3;  // WATER
+	if (m == dp) return 4;  // PATH
+	if (m == dd) return 2;  // DESERT
+	if (m == df) return 1;  // FOREST
+	return 0;               // GRASS
+}
 
 void fragment() {
 	vec2 pos = (UV - 0.5) * 2.0 * u_half;
+	vec3 col;
 
-	// poids des biomes (transitions douces, pas de bord dur)
-	float w_desert = smooth_zone(distance(pos, u_desert_center.xz), u_desert_r);
-	float w_forest = smooth_zone(distance(pos, u_forest_center.xz), u_forest_r);
-	float w_water = smooth_river(pos);
-	float total = w_desert + w_forest + w_water;
-	float w_grass = max(0.0, 1.0 - total);
-
-	// mélange des motifs par zone
-	vec3 col = grass_tex(pos) * w_grass
+	// ---------- MODE CARTE ÉDITÉE ----------
+	if (u_use_grid) {
+		vec3 c = texture(u_grid, UV).rgb;   // couleur palette lissée (transitions douces)
+		int b = dominant_biome(c);
+		if (b == 3)      col = water_tex(pos);
+		else if (b == 4) col = path_tex(pos);
+		else if (b == 2) col = desert_tex(pos);
+		else if (b == 1) col = forest_tex(pos);
+		else             col = grass_tex(pos);
+		// On fonce légèrement vers la couleur lissée pour garder le fondu entre zones.
+		col = mix(col, c, 0.35);
+	}
+	// ---------- MODE PROCÉDURAL ----------
+	else {
+		// poids des biomes (transitions douces, pas de bord dur)
+		float w_desert = smooth_zone(distance(pos, u_desert_center.xz), u_desert_r);
+		float w_forest = smooth_zone(distance(pos, u_forest_center.xz), u_forest_r);
+		float w_water = smooth_river(pos);
+		float total = w_desert + w_forest + w_water;
+		float w_grass = max(0.0, 1.0 - total);
+		col = grass_tex(pos) * w_grass
 			 + desert_tex(pos) * w_desert
 			 + forest_tex(pos) * w_forest
 			 + water_tex(pos) * w_water;
+	}
 
 	ALBEDO = col;
 }
