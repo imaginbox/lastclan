@@ -119,19 +119,25 @@ vec3 path_tex(vec2 p) {
 	return max(base * (1.0 + (ruts - 0.5) * 0.30), vec3(0.0));
 }
 
-// Trouve le biome dominant (le plus proche de la couleur palette échantillonnée).
-int dominant_biome(vec3 c) {
-	float dg = distance(c, u_col_grass);
-	float df = distance(c, u_col_forest);
-	float dd = distance(c, u_col_desert);
-	float dw = distance(c, u_col_water);
-	float dp = distance(c, u_col_path);
-	float m = min(min(min(min(dg, df), dd), dw), dp);
-	if (m == dw) return 3;  // WATER
-	if (m == dp) return 4;  // PATH
-	if (m == dd) return 2;  // DESERT
-	if (m == df) return 1;  // FOREST
-	return 0;               // GRASS
+// Pondération douce des motifs : au lieu de choisir UN biome dominant (bord dur),
+// on mélange les motifs selon la proximité de la couleur lissée à chaque palette.
+// Le filtre linéaire de u_grid donne une couleur intermédiaire entre deux zones,
+// donc les deux motifs pèsent tous les deux → transition fluide et naturelle.
+vec3 grid_colors(vec2 p, vec3 c) {
+	const float A = 7.0;
+	float dg = dot(c - u_col_grass, c - u_col_grass);
+	float df = dot(c - u_col_forest, c - u_col_forest);
+	float dd = dot(c - u_col_desert, c - u_col_desert);
+	float dw = dot(c - u_col_water, c - u_col_water);
+	float dp = dot(c - u_col_path, c - u_col_path);
+	float wg = exp(-dg * A);
+	float wf = exp(-df * A);
+	float wd = exp(-dd * A);
+	float ww = exp(-dw * A);
+	float wp = exp(-dp * A);
+	float sum = wg + wf + wd + ww + wp;
+	return (grass_tex(p) * wg + forest_tex(p) * wf + desert_tex(p) * wd
+			+ water_tex(p) * ww + path_tex(p) * wp) / sum;
 }
 
 void fragment() {
@@ -141,14 +147,9 @@ void fragment() {
 	// ---------- MODE CARTE ÉDITÉE ----------
 	if (u_use_grid) {
 		vec3 c = texture(u_grid, UV).rgb;   // couleur palette lissée (transitions douces)
-		int b = dominant_biome(c);
-		if (b == 3)      col = water_tex(pos);
-		else if (b == 4) col = path_tex(pos);
-		else if (b == 2) col = desert_tex(pos);
-		else if (b == 1) col = forest_tex(pos);
-		else             col = grass_tex(pos);
-		// On fonce légèrement vers la couleur lissée pour garder le fondu entre zones.
-		col = mix(col, c, 0.35);
+		col = grid_colors(pos, c);
+		// Légère fusion vers la couleur lissée pour renforcer le fondu.
+		col = mix(col, c, 0.25);
 	}
 	// ---------- MODE PROCÉDURAL ----------
 	else {

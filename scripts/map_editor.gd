@@ -19,6 +19,12 @@ var _brush_size: int = 3
 var _mode: String = "paint"     # "paint" | "decor"
 var _decor_type: String = "tree"
 var _painting := false
+# Distribution du décor : placement ponctuel (clic) ou dispersion aléatoire.
+var _decor_random := false
+var _scatter_count := 8
+var _scatter_radius := 25.0
+# Déplacement de la caméra (zoom molette, pan clic molette).
+var _panning := false
 
 # UI
 var _name_edit: LineEdit
@@ -135,6 +141,40 @@ func _build_ui() -> void:
 		btn.toggle_mode = true
 		_decor_buttons.append(btn)
 		right_box.add_child(btn)
+	right_box.add_child(_sep("Distribution"))
+	var dgroup := ButtonGroup.new()
+	var place_btn := _btn("Placer", Callable())
+	place_btn.toggle_mode = true
+	place_btn.button_group = dgroup
+	place_btn.button_pressed = true
+	place_btn.toggled.connect(func(p: bool): if p: _set_decor_random(false))
+	right_box.add_child(place_btn)
+	var rand_btn := _btn("Aléatoire", Callable())
+	rand_btn.toggle_mode = true
+	rand_btn.button_group = dgroup
+	rand_btn.toggled.connect(func(p: bool): if p: _set_decor_random(true))
+	right_box.add_child(rand_btn)
+	var cnt_row := HBoxContainer.new()
+	cnt_row.add_child(_row_label("Nb"))
+	var cnt_spin := SpinBox.new()
+	cnt_spin.min_value = 1
+	cnt_spin.max_value = 60
+	cnt_spin.value = _scatter_count
+	cnt_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cnt_spin.value_changed.connect(func(v: float): _scatter_count = int(v))
+	cnt_row.add_child(cnt_spin)
+	right_box.add_child(cnt_row)
+	var rad_row := HBoxContainer.new()
+	rad_row.add_child(_row_label("Rayon"))
+	var rad_spin := SpinBox.new()
+	rad_spin.min_value = 5
+	rad_spin.max_value = 120
+	rad_spin.step = 5
+	rad_spin.value = _scatter_radius
+	rad_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rad_spin.value_changed.connect(func(v: float): _scatter_radius = v)
+	rad_row.add_child(rad_spin)
+	right_box.add_child(rad_row)
 	right_box.add_child(_sep("Spawn"))
 	var base_btn := _btn("Base (spawn)", func(): _set_decor("base"))
 	right_box.add_child(base_btn)
@@ -147,13 +187,22 @@ func _build_ui() -> void:
 func _btn(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.pressed.connect(cb)
+	if cb.is_valid():
+		b.pressed.connect(cb)
 	return b
 
 func _sep(text: String) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+	return l
+
+## Petit label pour les lignes de réglage (Nb, Rayon…).
+func _row_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.custom_minimum_size = Vector2(48, 0)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	return l
 
 func _set_mode(m: String) -> void:
@@ -170,25 +219,60 @@ func _set_decor(t: String) -> void:
 	_mode = "decor"
 	_status.text = "Placer: " + t.capitalize()
 
+func _set_decor_random(v: bool) -> void:
+	_decor_random = v
+	_status.text = ("Décor aléatoire (dispersion naturelle)" if v
+			else "Décor placé au clic")
+
 # ---------------------------------------------------------------------------
 # Entrées souris
 # ---------------------------------------------------------------------------
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			_painting = event.pressed
-			if event.pressed:
-				var w := _world_from_mouse(event.position)
-				if w != Vector3.INF:
-					_apply_at(w)
-		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				if event.pressed:
+					_zoom_camera(-1)
+			MOUSE_BUTTON_WHEEL_DOWN:
+				if event.pressed:
+					_zoom_camera(1)
+			MOUSE_BUTTON_MIDDLE:
+				_panning = event.pressed
+				if event.pressed:
+					Input.set_default_cursor_shape(Input.CURSOR_MOVE)
+				else:
+					Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+			MOUSE_BUTTON_LEFT:
+				_painting = event.pressed
+				if event.pressed:
+					var w := _world_from_mouse(event.position)
+					if w != Vector3.INF:
+						_apply_at(w)
+			MOUSE_BUTTON_RIGHT:
+				if event.pressed:
+					var w := _world_from_mouse(event.position)
+					if w != Vector3.INF:
+						_erase_decor_near(w)
+	elif event is InputEventMouseMotion:
+		if _panning:
+			_pan_camera(event.relative)
+		# En mode décor, on place UN élément par clic (pas à chaque mouvement) ;
+		# seul le mode peinture suit le glisser de la souris.
+		elif _painting and _mode == "paint":
 			var w := _world_from_mouse(event.position)
 			if w != Vector3.INF:
-				_erase_decor_near(w)
-	elif event is InputEventMouseMotion and _painting:
-		var w := _world_from_mouse(event.position)
-		if w != Vector3.INF:
-			_apply_at(w)
+				_apply_at(w)
+
+## Zoom orthographique : molette. size = hauteur visible du monde.
+func _zoom_camera(dir: int) -> void:
+	_cam.size = clampf(_cam.size * (1.0 + 0.12 * float(dir)), 25.0, 320.0)
+
+## Déplacement de la caméra : glisser avec le clic molette (relatif à l'écran).
+func _pan_camera(rel: Vector2) -> void:
+	var vp_h: float = get_viewport().get_visible_rect().size.y
+	var wpp := _cam.size / maxf(vp_h, 1.0)
+	_cam.position.x = clampf(_cam.position.x - rel.x * wpp, -200.0, 200.0)
+	_cam.position.z = clampf(_cam.position.z - rel.y * wpp, -200.0, 200.0)
 
 func _world_from_mouse(ev_pos: Vector2) -> Vector3:
 	var origin := _cam.project_ray_origin(ev_pos)
@@ -216,12 +300,23 @@ func _paint_brush(w: Vector3) -> void:
 	_rebake()
 
 func _place_decor(w: Vector3) -> void:
-	if _decor_type == "base":
-		# une seule base : on retire les anciennes puis on place
-		_map.spawns = _map.spawns.filter(func(s): return s["kind"] != "base")
-		_map.add_spawn("base", w.x, w.z)
+	# Base / avant-poste = spawns (un seul de chaque), toujours au clic exact.
+	if _decor_type == "base" or _decor_type == "outpost":
+		_map.spawns = _map.spawns.filter(func(s): return s["kind"] != _decor_type)
+		_map.add_spawn(_decor_type, w.x, w.z)
+	# Dispersion aléatoire : on répartit plusieurs éléments autour du clic avec
+	# rotation et échelle aléatoires → rendu naturel, non aligné en ligne.
+	elif _decor_random:
+		for i in _scatter_count:
+			var ang := randf_range(0.0, TAU)
+			var rad := sqrt(randf()) * _scatter_radius
+			var x := clampf(w.x + cos(ang) * rad, -200.0, 200.0)
+			var z := clampf(w.z + sin(ang) * rad, -200.0, 200.0)
+			_map.add_decor(_decor_type, x, z,
+					randf_range(0.7, 1.5), randf_range(0.0, 360.0))
+	# Placement ponctuel : léger aléa de rotation/échelle pour rester vivant.
 	else:
-		_map.add_decor(_decor_type, w.x, w.z, 1.0, 0.0)
+		_map.add_decor(_decor_type, w.x, w.z, randf_range(0.9, 1.3), randf_range(0.0, 360.0))
 	_refresh_decor_preview()
 	_rebake()
 
