@@ -746,10 +746,10 @@ func _init_biomes() -> void:
 	# Deux grandes zones de biome en coins opposés : désert d'un côté, forêt de
 	# l'autre, à ~85 u du centre (la base reste en prairie). Rivières au centre.
 	var ang := _biome_rng.randf() * TAU
-	_desert_center = Vector3(cos(ang), 0.0, sin(ang)) * 90.0
-	_desert_r = _biome_rng.randf_range(55.0, 65.0)
-	_forest_center = Vector3(cos(ang + PI), 0.0, sin(ang + PI)) * 90.0
-	_forest_r = _biome_rng.randf_range(55.0, 65.0)
+	_desert_center = Vector3(cos(ang), 0.0, sin(ang)) * 55.0
+	_desert_r = _biome_rng.randf_range(34.0, 40.0)
+	_forest_center = Vector3(cos(ang + PI), 0.0, sin(ang + PI)) * 55.0
+	_forest_r = _biome_rng.randf_range(34.0, 40.0)
 	# 1 à 2 rivières qui traversent la carte par le centre.
 	_rivers.clear()
 	var river_count := _biome_rng.randi_range(1, 2)
@@ -833,105 +833,36 @@ func _biome_color(b: int) -> Color:
 			return Color(0.42, 0.66, 0.30)
 	return Color.WHITE
 
-## Peint le sol par grille de biomes + dessine les rivières (appelé après le décor).
-## Génère une TEXTURE PNG du sol : chaque texel mélange en douceur les biomes
-## (transitions dégradées par bruit, pas de bords durs) + un détail de texture
-## naturel. Appliquée sur le sol → un seul draw call, rendu texturé et organique.
+## Applique un shader de terrain au sol : motif naturel par zone (herbe, sable,
+## forêt, eau), transitions douces entre biomes, haute résolution GPU, non pixelisé.
 func _spawn_biome_ground() -> void:
-	var tex := _generate_biome_texture(256)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = tex
-	mat.roughness = 1.0
-	mat.metallic = 0.0
-	var floor_mesh := get_node_or_null("NavigationRegion3D/Floor/Mesh") as MeshInstance3D
-	if floor_mesh != null:
-		floor_mesh.set_surface_override_material(0, mat)
-
-## Rendu de la texture de sol (PNG) en RGBA8, couvrant toute la carte.
-func _generate_biome_texture(size: int) -> ImageTexture:
-	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	for py in size:
-		for px in size:
-			var u := (float(px) + 0.5) / size
-			var v := (float(py) + 0.5) / size
-			var pos := Vector3((u - 0.5) * 2.0 * GRID_HALF, 0.0, (v - 0.5) * 2.0 * GRID_HALF)
-			img.set_pixel(px, py, _sample_biome_color(pos))
-	return ImageTexture.create_from_image(img)
-
-## Couleur d'un point du sol : mélange doux des biomes (bords dégradés) + bruit.
-func _sample_biome_color(pos: Vector3) -> Color:
-	var desert_w := _smooth_zone(pos, _desert_center, _desert_r)
-	var forest_w := _smooth_zone(pos, _forest_center, _forest_r)
-	var river_w := _smooth_river(pos)
-	var total := desert_w + forest_w + river_w
-	var grass_w := maxf(0.0, 1.0 - total)
-	var col := Color(0.42, 0.66, 0.30) * grass_w \
-		+ Color(0.80, 0.71, 0.46) * desert_w \
-		+ Color(0.30, 0.52, 0.24) * forest_w \
-		+ Color(0.20, 0.50, 0.85) * river_w
-	# Détail de texture : modulation par bruit fractal (rendu naturel, pas uni).
-	var n := _fbm(pos.x * 0.14, pos.z * 0.14)
-	var detail := 0.80 + 0.20 * (n * 2.0 - 1.0)
-	return Color(
-		clampf(col.r * detail, 0.0, 1.0),
-		clampf(col.g * detail, 0.0, 1.0),
-		clampf(col.b * detail, 0.0, 1.0)
-	)
-
-## Poids d'une zone circulaire avec bord doux (smoothstep sur une bande).
-func _smooth_zone(pos: Vector3, center: Vector3, r: float) -> float:
-	var d := pos.distance_to(center)
-	var fall := 16.0
-	var t := clampf((r + fall - d) / fall, 0.0, 1.0)
-	return t * t * (3.0 - 2.0 * t)
-
-## Poids de l'eau d'une rivière : 1 dans le lit, 0 au-delà, bord doux.
-func _smooth_river(pos: Vector3) -> float:
-	var best := 1e9
-	var best_w := 6.0
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://shaders/terrain.gdshader")
+	# Zones désert / forêt (transitions fondées sur leur centre + rayon)
+	mat.set_shader_parameter("u_desert_center", _desert_center)
+	mat.set_shader_parameter("u_desert_r", _desert_r)
+	mat.set_shader_parameter("u_forest_center", _forest_center)
+	mat.set_shader_parameter("u_forest_r", _forest_r)
+	# Rivières : segments (x1,z1,x2,z2) + largeurs, jusqu'à 32 segments
+	var segs := PackedVector4Array()
+	var widths := PackedFloat32Array()
 	for r in _rivers:
 		var pts: Array = r["pts"]
 		var w: float = r["width"]
 		for i in pts.size() - 1:
-			var d := _dist_point_segment(pos, pts[i], pts[i + 1])
-			if d < best:
-				best = d
-				best_w = w
-	if best > 1e8:
-		return 0.0
-	var fall := 6.0
-	var t := clampf((best - best_w + fall) / fall, 0.0, 1.0)
-	return 1.0 - t * t * (3.0 - 2.0 * t)  # 1 dans l'eau, 0 au-delà
-
-## Bruit de valeur 2D (hash déterministe, stable entre clients).
-func _hash2(x: int, y: int) -> float:
-	var h := x * 374761393 + y * 668265263
-	h = (h ^ (h >> 13)) * 1274126177
-	return float((h & 0x7fffffff) % 100000) / 100000.0
-
-func _value_noise(x: float, y: float) -> float:
-	var xi := int(floor(x))
-	var yi := int(floor(y))
-	var xf := x - float(xi)
-	var yf := y - float(yi)
-	var u := xf * xf * (3.0 - 2.0 * xf)
-	var v := yf * yf * (3.0 - 2.0 * yf)
-	var a := _hash2(xi, yi)
-	var b := _hash2(xi + 1, yi)
-	var c := _hash2(xi, yi + 1)
-	var d := _hash2(xi + 1, yi + 1)
-	return lerp(lerp(a, b, u), lerp(c, d, u), v)
-
-## Bruit fractal (fBm) : 2 octaves pour un détail naturel, rapide à générer.
-func _fbm(x: float, y: float) -> float:
-	var total := 0.0
-	var amp := 0.5
-	var freq := 1.0
-	for i in 2:
-		total += _value_noise(x * freq, y * freq) * amp
-		amp *= 0.5
-		freq *= 2.0
-	return total
+			if segs.size() >= 32:
+				break
+			segs.append(Vector4(pts[i].x, pts[i].z, pts[i + 1].x, pts[i + 1].z))
+			widths.append(w)
+	while segs.size() < 32:
+		segs.append(Vector4(0, 0, 0, 0))
+		widths.append(0.0)
+	mat.set_shader_parameter("u_segment_count", widths.size())
+	mat.set_shader_parameter("u_river", segs)
+	mat.set_shader_parameter("u_river_width", widths)
+	var floor_mesh := get_node_or_null("NavigationRegion3D/Floor/Mesh") as MeshInstance3D
+	if floor_mesh != null:
+		floor_mesh.set_surface_override_material(0, mat)
 
 ## Cactus stylisés dans le désert + arbres denses dans la forêt.
 func _spawn_biome_decor() -> void:
