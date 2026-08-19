@@ -27,6 +27,22 @@ const GRID_HALF := 190.0
 const DECOR_MARGIN := 5.0
 const DRAG_SELECT_THRESHOLD := 8.0
 
+# ============ MONDES À BIOMES (rivières, désert, forêt, prairie) ============
+## Type de biome en un point du monde. Tout est dérivé du seed de la room, donc
+## IDENTIQUE pour tous les joueurs (monde partagé où l'on peut se rencontrer).
+enum Biome { GRASS, FOREST, DESERT, WATER }
+## Résolution de la grille de couleur du sol (16x16 cases sur la carte 380).
+const BIOME_GRID := 16
+## Rayon de « zone habitable » garanti autour de la base du joueur.
+const HABITABLE_RADIUS := 18.0
+var _biome_root: Node3D = null
+var _biome_rng: RandomNumberGenerator = null
+var _desert_center: Vector3 = Vector3.ZERO
+var _desert_r: float = 0.0
+var _forest_center: Vector3 = Vector3.ZERO
+var _forest_r: float = 0.0
+var _rivers: Array = []
+
 @onready var nav_region: NavigationRegion3D = $NavigationRegion3D
 @onready var villager_root: Node3D = $Units
 
@@ -237,6 +253,10 @@ func _ready() -> void:
 	_wildlife_root = Node3D.new()
 	_wildlife_root.name = "Wildlife"
 	add_child(_wildlife_root)
+	# Racine des biomes (couleur du sol + rivières + décor de biome).
+	_biome_root = Node3D.new()
+	_biome_root.name = "Biomes"
+	add_child(_biome_root)
 	# Les messages de chat reçus d'autres joueurs s'affichent en jeu (toast).
 	_connect_chat_toasts()
 	# Applique une première fois le layout selon l'orientation détectée.
@@ -288,6 +308,8 @@ func _spawn_world() -> void:
 	_world_rng.seed = Lobby.world_seed
 	_built_seed = Lobby.world_seed
 	_world_spawned = true
+	# Prépare les régions de biomes + rivières (déterministe : même monde pour tous).
+	_init_biomes()
 	# Répartit les ressources (positions absolues, identiques pour tous).
 	_spawn_resources()
 	# Serveur dédié : il génère le MONDE partagé (ressources, décor) pour que tous
@@ -300,6 +322,9 @@ func _spawn_world() -> void:
 		_spawn_wildlife()
 		_spawn_enemy_outpost()
 	_spawn_decor()
+	# Colorie le sol par biome + dessine les rivières + décor propre au biome.
+	_spawn_biome_ground()
+	_spawn_biome_decor()
 	# Les ressources initiales ont été posées AVANT les bâtiments (la garde
 	# _near_building ne voyait pas encore les constructions) : on les écarte à
 	# nouveau des bâtiments une fois ceux-ci en place.
@@ -340,6 +365,8 @@ func _clear_world() -> void:
 	_clear_root(decor_root)
 	_clear_root(building_root)
 	_clear_root(villager_root)
+	if _biome_root != null:
+		_clear_root(_biome_root)
 	if _wildlife_root != null:
 		_clear_root(_wildlife_root)
 	if _remote_units != null:
@@ -657,6 +684,10 @@ func _spawn_decor() -> void:
 		var pos := _random_decor_pos()
 		if pos == Vector3.INF:
 			continue
+		# Pas d'herbe dans le désert ni dans le lit des rivières.
+		var b := _biome_at(pos)
+		if b == Biome.DESERT or b == Biome.WATER:
+			continue
 		var d := Decor.new()
 		if grass_image != "":
 			d.build_grass_image(grass_image, grass_w, grass_h)
@@ -705,6 +736,213 @@ func _random_decor_pos_tree() -> Vector3:
 		if not _occupancy.has(cell) and not _near_building(pos, DECOR_MARGIN):
 			return pos
 	return Vector3.INF
+
+## ============================ MONDE À BIOMES ============================
+## Prépare les régions (désert, forêt) et les rivières, de façon déterministe
+## depuis le seed de la room. Appelé en début de _spawn_world (avant le décor).
+func _init_biomes() -> void:
+	_biome_rng = RandomNumberGenerator.new()
+	_biome_rng.seed = Lobby.world_seed ^ 0x1B873593
+	# Deux grandes zones de biome en coins opposés : désert d'un côté, forêt de
+	# l'autre, à ~85 u du centre (la base reste en prairie). Rivières au centre.
+	var ang := _biome_rng.randf() * TAU
+	_desert_center = Vector3(cos(ang), 0.0, sin(ang)) * 70.0
+	_desert_r = _biome_rng.randf_range(62.0, 72.0)
+	_forest_center = Vector3(cos(ang + PI), 0.0, sin(ang + PI)) * 70.0
+	_forest_r = _biome_rng.randf_range(62.0, 72.0)
+	# 1 à 2 rivières qui traversent la carte par le centre.
+	_rivers.clear()
+	var river_count := _biome_rng.randi_range(1, 2)
+	for i in river_count:
+		_rivers.append(_build_one_river())
+
+## Construit un cours d'eau : une polyligne qui part d'un bord de la carte,
+## passe près du centre (où sont les bases) et ressort du bord opposé. Une
+## courbe de Bézier quadratique + bruit donne un tracé sinueux mais lisible.
+func _build_one_river() -> Dictionary:
+	var edge := _biome_rng.randi_range(0, 3)
+	var start := _river_edge_point(edge)
+	var end := _river_edge_point((edge + 2) % 4)
+	var mid := Vector3(_biome_rng.randf_range(-35.0, 35.0), 0.0, _biome_rng.randf_range(-35.0, 35.0))
+	var pts: Array = []
+	var steps := 16
+	for s in steps + 1:
+		var t := float(s) / steps
+		var p := _bezier2(start, mid, end, t)
+		p += Vector3(_biome_rng.randf_range(-3.0, 3.0), 0.0, _biome_rng.randf_range(-3.0, 3.0))
+		p.x = clampf(p.x, -GRID_HALF, GRID_HALF)
+		p.z = clampf(p.z, -GRID_HALF, GRID_HALF)
+		pts.append(p)
+	return {"pts": pts, "width": _biome_rng.randf_range(6.0, 9.0)}
+
+## Point aléatoire sur un bord de la carte (0=gauche,1=droite,2=haut,3=bas).
+func _river_edge_point(edge: int) -> Vector3:
+	match edge:
+		0: return Vector3(-GRID_HALF, 0.0, _biome_rng.randf_range(-GRID_HALF, GRID_HALF))
+		1: return Vector3(GRID_HALF, 0.0, _biome_rng.randf_range(-GRID_HALF, GRID_HALF))
+		2: return Vector3(_biome_rng.randf_range(-GRID_HALF, GRID_HALF), 0.0, -GRID_HALF)
+	return Vector3(_biome_rng.randf_range(-GRID_HALF, GRID_HALF), 0.0, GRID_HALF)
+
+## Point d'une courbe de Bézier quadratique (a→c via b) au paramètre t.
+func _bezier2(a: Vector3, b: Vector3, c: Vector3, t: float) -> Vector3:
+	var u := 1.0 - t
+	return u * u * a + 2.0 * u * t * b + t * t * c
+
+## Biome en un point : l'eau des rivières prime, sinon désert/forêt par proximité
+## de leur centre, sinon prairie. La zone autour de la base reste habitable.
+func _biome_at(pos: Vector3) -> int:
+	if _biome_rng == null:
+		return Biome.GRASS
+	if pos.distance_to(_base_origin) < HABITABLE_RADIUS:
+		return Biome.GRASS
+	if _on_river(pos):
+		return Biome.WATER
+	if pos.distance_to(_desert_center) <= _desert_r:
+		return Biome.DESERT
+	if pos.distance_to(_forest_center) <= _forest_r:
+		return Biome.FOREST
+	return Biome.GRASS
+
+## Vrai si le point est dans le lit d'une rivière (distance à la polyligne).
+func _on_river(pos: Vector3) -> bool:
+	for r in _rivers:
+		var pts: Array = r["pts"]
+		var w: float = r["width"]
+		for i in pts.size() - 1:
+			if _dist_point_segment(pos, pts[i], pts[i + 1]) <= w:
+				return true
+	return false
+
+## Distance d'un point à un segment [a,b].
+func _dist_point_segment(p: Vector3, a: Vector3, b: Vector3) -> float:
+	var ab := b - a
+	var len2 := ab.length_squared()
+	if len2 < 0.0001:
+		return p.distance_to(a)
+	var t := clampf((p - a).dot(ab) / len2, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+## Couleur du sol associée à un biome.
+func _biome_color(b: int) -> Color:
+	match b:
+		Biome.DESERT:
+			return Color(0.80, 0.71, 0.46)
+		Biome.FOREST:
+			return Color(0.30, 0.52, 0.24)
+		Biome.GRASS:
+			return Color(0.42, 0.66, 0.30)
+	return Color.WHITE
+
+## Peint le sol par grille de biomes + dessine les rivières (appelé après le décor).
+func _spawn_biome_ground() -> void:
+	var cell := (GRID_HALF * 2.0) / BIOME_GRID
+	for gx in BIOME_GRID:
+		for gz in BIOME_GRID:
+			var cx := -GRID_HALF + cell * (gx + 0.5)
+			var cz := -GRID_HALF + cell * (gz + 0.5)
+			var b := _biome_at(Vector3(cx, 0.0, cz))
+			if b == Biome.WATER:
+				continue  # l'eau est dessinée par les rivières
+			_biome_root.add_child(_make_flat_box(cell, _biome_color(b), 1.0, Vector3(cx, 0.0, cz)))
+	_spawn_river_meshes()
+
+## Dessine chaque tronçon de rivière comme un plan d'eau semi-transparent.
+func _spawn_river_meshes() -> void:
+	for r in _rivers:
+		var pts: Array = r["pts"]
+		var w: float = r["width"]
+		for i in pts.size() - 1:
+			var a: Vector3 = pts[i]
+			var b: Vector3 = pts[i + 1]
+			if a.distance_to(b) < 0.1:
+				continue  # segment dégénéré : on saute
+			var mid := (a + b) * 0.5
+			var mi := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(w, 0.02, a.distance_to(b))
+			mi.mesh = bm
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color(0.2, 0.5, 0.85, 0.92)
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mi.material_override = mat
+			mi.position = Vector3(mid.x, 0.0, mid.z)
+			mi.look_at_from_position(mi.position, Vector3(b.x, 0.0, b.z), Vector3.UP)
+			_biome_root.add_child(mi)
+
+## Boîte plate fine pour colorer le sol (visuelle seule, sans collision → navmesh intact).
+func _make_flat_box(size: float, col: Color, alpha: float, center: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(size, 0.02, size)
+	mi.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(col.r, col.g, col.b, alpha)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	if alpha < 1.0:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mi.material_override = mat
+	mi.position = center
+	return mi
+
+## Cactus stylisés dans le désert + arbres denses dans la forêt.
+func _spawn_biome_decor() -> void:
+	var cacti := 40
+	for i in cacti:
+		var pos := _random_biome_pos(Biome.DESERT)
+		if pos == Vector3.INF:
+			continue
+		var c := _make_cactus()
+		c.position = pos
+		c.rotation_degrees.y = _biome_rng.randf_range(0.0, 360.0)
+		var s := _biome_rng.randf_range(0.8, 1.5)
+		c.scale = Vector3(s, s, s)
+		_biome_root.add_child(c)
+	var trees := 60
+	for i in trees:
+		var pos := _random_biome_pos(Biome.FOREST)
+		if pos == Vector3.INF:
+			continue
+		var d := Decor.new()
+		d.build_tree()
+		d.position = pos
+		d.rotation_degrees.y = _biome_rng.randf_range(0.0, 360.0)
+		var s2 := _biome_rng.randf_range(0.8, 1.6)
+		d.scale = Vector3(s2, s2, s2)
+		_biome_root.add_child(d)
+
+## Position libre dans un biome donné (hors bâtiments et occupancy).
+func _random_biome_pos(b: int) -> Vector3:
+	for attempt in 40:
+		var pos := Vector3(_biome_rng.randf_range(-GRID_HALF, GRID_HALF), 0.0, _biome_rng.randf_range(-GRID_HALF, GRID_HALF))
+		if _biome_at(pos) != b:
+			continue
+		var cell := _cell_from_pos(pos)
+		if not _occupancy.has(cell) and not _near_building(pos, DECOR_MARGIN):
+			return pos
+	return Vector3.INF
+
+## Petit cactus 3D procédural (tronc + deux bras).
+func _make_cactus() -> Node3D:
+	var root := Node3D.new()
+	root.add_child(_cyl(0.35, 1.6, Color(0.30, 0.62, 0.25), Vector3(0.0, 0.8, 0.0)))
+	root.add_child(_cyl(0.25, 1.0, Color(0.30, 0.62, 0.25), Vector3(0.7, 1.1, 0.0)))
+	root.add_child(_cyl(0.22, 0.8, Color(0.30, 0.62, 0.25), Vector3(-0.65, 1.0, 0.0)))
+	return root
+
+## Cylindre coloré (mesh 3D) pour le cactus.
+func _cyl(radius: float, height: float, col: Color, at: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = height
+	mi.mesh = cm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mi.material_override = mat
+	mi.position = at
+	return mi
 
 ## Directeur du monde : vérifie périodiquement la densité des ressources et fait
 ## apparaître de nouvelles sources aux emplacements libres quand elles se raréfient.
