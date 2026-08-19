@@ -25,6 +25,9 @@ var _scatter_count := 8
 var _scatter_radius := 25.0
 # Déplacement de la caméra (zoom molette, pan clic molette).
 var _panning := false
+# Outil « Route » : premier clic = départ, second clic = tracé d'un chemin droit.
+var _route_mode := false
+var _route_start := Vector2.INF
 
 # UI
 var _name_edit: LineEdit
@@ -111,6 +114,11 @@ func _build_ui() -> void:
 		var btn := _btn(TerrainMap.BIOME_NAMES[bid], func(): _set_brush(bid))
 		btn.modulate = TerrainMap.PALETTE[bid]
 		left_box.add_child(btn)
+	# Outil route : trace un chemin droit entre deux clics.
+	var route_btn := _btn("Route (2 pts)", Callable())
+	route_btn.toggle_mode = true
+	route_btn.toggled.connect(_on_toggle_route)
+	left_box.add_child(route_btn)
 
 	left_box.add_child(_sep("Pinceau"))
 	var size_box := HBoxContainer.new()
@@ -137,11 +145,13 @@ func _build_ui() -> void:
 	right_box.add_theme_constant_override("separation", 6)
 	right.add_child(right_box)
 	right_box.add_child(_sep("Décor"))
-	for t in ["tree", "cactus", "rock", "bush", "flower", "grass"]:
+	for t in ["tree", "cactus", "rock", "bush", "flower", "grass", "house"]:
 		var btn := _btn(t.capitalize(), func(): _set_decor(t))
 		btn.toggle_mode = true
 		_decor_buttons.append(btn)
 		right_box.add_child(btn)
+	var village_btn := _btn("Village", func(): _set_decor("village"))
+	right_box.add_child(village_btn)
 	right_box.add_child(_sep("Distribution"))
 	var dgroup := ButtonGroup.new()
 	var place_btn := _btn("Placer", Callable())
@@ -286,10 +296,53 @@ func _world_from_mouse(ev_pos: Vector2) -> Vector3:
 	return origin + normal * t
 
 func _apply_at(w: Vector3) -> void:
-	if _mode == "paint":
+	if _route_mode:
+		_route_click(w)
+	elif _mode == "paint":
 		_paint_brush(w)
 	else:
 		_place_decor(w)
+
+## Route en 2 points : premier clic = départ, second clic = chemin droit (PATH).
+func _route_click(w: Vector3) -> void:
+	var cell := Vector2(_map.world_to_cell(w.x, w.z))
+	if _route_start == Vector2.INF:
+		_route_start = cell
+		_status.text = "Route : cliquez le point d'arrivée."
+	else:
+		_draw_route_line(_route_start, cell)
+		_route_start = Vector2.INF
+		_rebake()
+		_status.text = "Route tracée."
+
+func _on_toggle_route(pressed: bool) -> void:
+	_route_mode = pressed
+	_mode = "paint"
+	_route_start = Vector2.INF
+	_status.text = ("Route : cliquez le point de départ." if pressed else "Peindre au clic.")
+
+## Tracé d'une ligne droite (Bresenham) de cellules CHEMIN de a vers b.
+func _draw_route_line(a: Vector2, b: Vector2) -> void:
+	var x0 := int(a.x)
+	var y0 := int(a.y)
+	var x1 := int(b.x)
+	var y1 := int(b.y)
+	var dx := absi(x1 - x0)
+	var sx := 1 if x0 < x1 else -1
+	var dy := -absi(y1 - y0)
+	var sy := 1 if y0 < y1 else -1
+	var err := dx + dy
+	while true:
+		_set_cell_safe(x0, y0, TerrainMap.TB.PATH)
+		if x0 == x1 and y0 == y1:
+			break
+		var e2 := 2 * err
+		if e2 >= dy:
+			err += dy
+			x0 += sx
+		if e2 <= dx:
+			err += dx
+			y0 += sy
 
 func _paint_brush(w: Vector3) -> void:
 	var c := _map.world_to_cell(w.x, w.z)
@@ -301,8 +354,11 @@ func _paint_brush(w: Vector3) -> void:
 	_rebake()
 
 func _place_decor(w: Vector3) -> void:
+	# Village : groupe de maisons + une petite croix de chemin au centre.
+	if _decor_type == "village":
+		_place_village(w)
 	# Base / avant-poste = spawns (un seul de chaque), toujours au clic exact.
-	if _decor_type == "base" or _decor_type == "outpost":
+	elif _decor_type == "base" or _decor_type == "outpost":
 		_map.spawns = _map.spawns.filter(func(s): return s["kind"] != _decor_type)
 		_map.add_spawn(_decor_type, w.x, w.z)
 	# Dispersion aléatoire : on répartit plusieurs éléments autour du clic avec
@@ -318,6 +374,24 @@ func _place_decor(w: Vector3) -> void:
 	# Placement ponctuel : léger aléa de rotation/échelle pour rester vivant.
 	else:
 		_map.add_decor(_decor_type, w.x, w.z, randf_range(0.9, 1.3), randf_range(0.0, 360.0))
+	_refresh_decor_preview()
+	_rebake()
+
+## Pose un petit village : quelques maisons en cercle + une croix de chemin.
+func _place_village(w: Vector3) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	for i in 7:
+		var ang := rng.randf_range(0.0, TAU)
+		var rad := rng.randf_range(6.0, 26.0)
+		_map.add_decor("house", w.x + cos(ang) * rad, w.z + sin(ang) * rad,
+				rng.randf_range(0.9, 1.4), rng.randf_range(0.0, 360.0))
+	# Croix de chemin au centre du village.
+	var c := Vector2(_map.world_to_cell(w.x, w.z))
+	_draw_route_line(c, c + Vector2(4, 0))
+	_draw_route_line(c - Vector2(4, 0), c + Vector2(4, 0))
+	_draw_route_line(c, c + Vector2(0, 4))
+	_draw_route_line(c - Vector2(0, 4), c + Vector2(0, 4))
 	_refresh_decor_preview()
 	_rebake()
 
@@ -355,6 +429,7 @@ func _make_decor_mesh(d: Dictionary) -> MeshInstance3D:
 		"rock": col = Color(0.55, 0.55, 0.58); shape = "box"
 		"bush": col = Color(0.28, 0.45, 0.2)
 		"flower": col = Color(0.9, 0.4, 0.4)
+		"house": col = Color(0.72, 0.5, 0.3); shape = "box"
 		_ : col = Color(0.5, 0.8, 0.3); shape = "quad"
 	var mi := MeshInstance3D.new()
 	mi.mesh = _shape_mesh(shape)

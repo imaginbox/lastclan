@@ -373,6 +373,14 @@ func _sync_map(map_name: String) -> void:
 	assigned_map = map_name
 	_mp_log("SYNC_MAP name=%s" % (map_name if not map_name.is_empty() else "(procédural)"))
 
+## Le serveur (admin) change la carte du serveur en cours : appliquée à tous,
+## puis chacun recharge le monde avec la nouvelle carte.
+@rpc("any_peer", "call_local", "reliable")
+func apply_map(map_name: String) -> void:
+	assigned_map = map_name
+	_mp_log("APPLY_MAP name=%s (rechargement du monde)" % (map_name if not map_name.is_empty() else "(procédural)"))
+	get_tree().call_deferred("reload_current_scene")
+
 ## Une fois connecté au relais : on s'ajoute au roster.
 func _on_connected_ok() -> void:
 	_stop_connect_timeout()

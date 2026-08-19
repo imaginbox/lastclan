@@ -184,6 +184,9 @@ var _toast_layer: CanvasLayer = null
 ## --- Nombres de récolte flottants (HUD cartoon) ---
 var _float_root: CanvasLayer = null
 
+## --- Dialogue admin de changement de carte (serveur) ---
+var _map_switch_panel: Control = null
+
 ## --- Sync live des unités (multijoueur) ---
 var _remote_units: Node3D = null
 var _remote_rep: Dictionary = {}      # peer_id -> Array[Node3D] (représentations distantes)
@@ -1016,6 +1019,8 @@ func _decor_node(type: String) -> Node3D:
 			return _make_bush()
 		"flower":
 			return _make_flower()
+		"house":
+			return _make_house()
 	return null
 
 func _make_rock() -> Node3D:
@@ -1060,6 +1065,20 @@ func _box(w: float, h: float, d: float, col: Color, at: Vector3) -> MeshInstance
 	mi.material_override = _solid_mat(col)
 	mi.position = at
 	return mi
+
+## Petite maison décorative (murs en torchis + toit). Utilisée pour les villages
+## posés sur une carte éditée.
+func _make_house() -> Node3D:
+	var root := Node3D.new()
+	var walls := _box(1.6, 1.1, 1.4, Color(0.72, 0.55, 0.32), Vector3(0, 0.55, 0))
+	root.add_child(walls)
+	# Toit en pente (boîte fine légèrement tournée).
+	var roof := _box(1.9, 0.35, 1.6, Color(0.5, 0.2, 0.1), Vector3(0, 1.15, 0))
+	roof.rotation_degrees.y = 45.0
+	root.add_child(roof)
+	# Cheminée.
+	root.add_child(_box(0.3, 0.5, 0.3, Color(0.35, 0.3, 0.28), Vector3(0.55, 1.35, 0)))
+	return root
 
 func _solid_mat(col: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -3517,6 +3536,9 @@ func _setup_clan_button() -> void:
 	var _realm_btn := _make_top_menu_item(mvb, "Royaume", _notify.bind("Jauge du royaume (bientôt détaillée)"))
 	clan_entry_btn = _make_top_menu_item(mvb, "Clan", _toggle_clan_panel)
 	var _settings_btn := _make_top_menu_item(mvb, "Paramètres", _notify.bind("Paramètres (bientôt)"))
+	# Réservé admin : changer la carte personnalisée du serveur (recharge le monde).
+	if _is_admin():
+		_make_top_menu_item(mvb, "Carte (serveur)", _open_map_switch_dialog)
 	_make_top_menu_item(mvb, "Langue", _toggle_language_popup)
 	var close_btn := Button.new()
 	close_btn.text = "Fermer"
@@ -3557,6 +3579,123 @@ func _make_top_menu_item(parent: Container, text: String, handler: Callable) -> 
 	b.pressed.connect(handler)
 	parent.add_child(b)
 	return b
+
+## L'admin déverrouillé peut changer la carte du serveur.
+func _is_admin() -> bool:
+	var cfg: Node = get_node_or_null("/root/GameConfig")
+	return cfg != null and cfg.get("admin_unlocked") == true
+
+func _list_maps() -> Array[String]:
+	var out: Array[String] = []
+	var dir := DirAccess.open("res://maps")
+	if dir == null:
+		return out
+	for f in dir.get_files():
+		if f.ends_with(".json"):
+			out.append(f.trim_suffix(".json"))
+	out.sort()
+	return out
+
+## Dialogue admin : choisir la carte du serveur et l'appliquer à tous.
+func _open_map_switch_dialog() -> void:
+	if not _is_admin():
+		return
+	if _map_switch_panel != null:
+		_map_switch_panel.queue_free()
+		_map_switch_panel = null
+	var layer: CanvasLayer = _float_root
+	var modal := Control.new()
+	modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal.mouse_filter = Control.MOUSE_FILTER_STOP
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.55)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal.add_child(bg)
+	var panel := PanelContainer.new()
+	panel.name = "MapSwitch"
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.09, 0.11, 0.15, 0.98)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.6, 0.7, 0.9, 0.5)
+	sb.corner_radius_top_left = 12
+	sb.corner_radius_top_right = 12
+	sb.corner_radius_bottom_left = 12
+	sb.corner_radius_bottom_right = 12
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", sb)
+	modal.add_child(panel)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 10)
+	panel.add_child(vb)
+	var title := Label.new()
+	title.text = "Carte du serveur (change pour tous)"
+	title.add_theme_font_size_override("font_size", int(18 * _ui_scale))
+	vb.add_child(title)
+	var tip := Label.new()
+	tip.text = "Recharge le monde avec la carte choisie."
+	tip.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
+	vb.add_child(tip)
+	var opt := OptionButton.new()
+	opt.add_item("— Monde procédural —")
+	for m in _list_maps():
+		opt.add_item(m)
+	# Sélection actuelle.
+	var cur: String = Lobby.assigned_map
+	opt.selected = 0
+	for i in opt.item_count:
+		if opt.get_item_text(i) == cur:
+			opt.selected = i
+			break
+
+	opt.custom_minimum_size = Vector2(320, 44)
+	vb.add_child(opt)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	var apply_btn := Button.new()
+	apply_btn.text = "Appliquer"
+	apply_btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	_stylize_coc_button(apply_btn)
+	hb.add_child(apply_btn)
+	var cancel_btn := Button.new()
+	cancel_btn.text = "Annuler"
+	cancel_btn.add_theme_font_size_override("font_size", int(16 * _ui_scale))
+	_stylize_coc_button(cancel_btn)
+	hb.add_child(cancel_btn)
+	vb.add_child(hb)
+	apply_btn.pressed.connect(func():
+		var chosen: String = opt.get_item_text(opt.selected)
+		if chosen.begins_with("—"):
+			chosen = ""
+		_apply_server_map(chosen)
+		modal.queue_free()
+		_map_switch_panel = null
+	)
+	cancel_btn.pressed.connect(func():
+		modal.queue_free()
+		_map_switch_panel = null
+	)
+	layer.add_child(modal)
+	_map_switch_panel = modal
+
+## Applique la carte sur le serveur (host) et la diffuse à tous, puis recharge.
+func _apply_server_map(chosen: String) -> void:
+	if not multiplayer.has_multiplayer_peer():
+		# Hors ligne : on charge simplement la carte localement.
+		Lobby.assigned_map = chosen
+		_notify("Carte changée")
+		get_tree().call_deferred("reload_current_scene")
+		return
+	# En ligne : seul le host (peer 1, autorité) peut diffuser.
+	if multiplayer.get_unique_id() != 1:
+		_notify("Seul le créateur de la partie (admin) peut changer la carte")
+		return
+	Lobby.apply_map.rpc(chosen)
 
 ## Ouvre/ferme le menu hub « ☰ ».
 func _toggle_top_menu() -> void:
