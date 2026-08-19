@@ -875,6 +875,9 @@ func _spawn_biome_ground() -> void:
 	mat.set_shader_parameter("u_segment_count", widths.size())
 	mat.set_shader_parameter("u_river", segs)
 	mat.set_shader_parameter("u_river_width", widths)
+	# Le sol visible dépasse la carte pour remplir l'écran large ; la carte occupe
+	# la zone centrale ±u_half, au-delà le shader remplit une couleur neutre.
+	mat.set_shader_parameter("u_floor_half", 1200.0)
 	var floor_mesh := get_node_or_null("NavigationRegion3D/Floor/Mesh") as MeshInstance3D
 	if floor_mesh != null:
 		floor_mesh.set_surface_override_material(0, mat)
@@ -964,6 +967,8 @@ func _load_map_world() -> bool:
 	mat.set_shader_parameter("u_grid", tm.bake_color_texture())
 	for b in TerrainMap.TB.values():
 		mat.set_shader_parameter("u_col_" + _biome_uniform(b), TerrainMap.PALETTE[b])
+	# Le sol visible dépasse la carte pour remplir l'écran large.
+	mat.set_shader_parameter("u_floor_half", 1200.0)
 	var floor_mesh := get_node_or_null("NavigationRegion3D/Floor/Mesh") as MeshInstance3D
 	if floor_mesh != null:
 		floor_mesh.set_surface_override_material(0, mat)

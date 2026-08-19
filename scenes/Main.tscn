@@ -27,7 +27,7 @@ adjustment_saturation = 1.35
 size = Vector3(400, 2, 400)
 
 [sub_resource type="BoxMesh" id="FloorMesh"]
-size = Vector3(400, 2, 400)
+size = Vector3(2400, 2, 2400)
 
 [sub_resource type="StandardMaterial3D" id="FloorMat"]
 albedo_color = Color(0.45, 0.72, 0.35, 1)

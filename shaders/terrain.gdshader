@@ -24,6 +24,11 @@ uniform vec3 u_col_forest = vec3(0.30, 0.52, 0.24);
 uniform vec3 u_col_desert = vec3(0.80, 0.71, 0.46);
 uniform vec3 u_col_water = vec3(0.20, 0.50, 0.85);
 uniform vec3 u_col_path = vec3(0.58, 0.47, 0.34);
+// Sol visible plus grand que la carte (pour remplir l'écran large). La carte
+// (procédurale ou éditée) occupe la zone centrale ±u_half ; au-delà on remplit
+// d'une couleur de sol neutre au lieu du fond vide.
+uniform float u_floor_half = 200.0;
+uniform vec3 u_out_color = vec3(0.40, 0.45, 0.34);
 
 const float ZONE_FALL = 16.0;
 const float RIVER_FALL = 6.0;
@@ -141,28 +146,33 @@ vec3 grid_colors(vec2 p, vec3 c) {
 }
 
 void fragment() {
-	vec2 pos = (UV - 0.5) * 2.0 * u_half;
+	vec2 world_pos = (UV - 0.5) * 2.0 * u_floor_half;
 	vec3 col;
 
+	// Hors de la carte : sol neutre (remplit l'écran, pas de fond vide).
+	if (abs(world_pos.x) > u_half || abs(world_pos.y) > u_half) {
+		col = u_out_color;
+	}
 	// ---------- MODE CARTE ÉDITÉE ----------
-	if (u_use_grid) {
-		vec3 c = texture(u_grid, UV).rgb;   // couleur palette lissée (transitions douces)
-		col = grid_colors(pos, c);
+	else if (u_use_grid) {
+		vec2 map_uv = world_pos / (2.0 * u_half) + 0.5;
+		vec3 c = texture(u_grid, map_uv).rgb;   // couleur palette lissée (transitions douces)
+		col = grid_colors(world_pos, c);
 		// Légère fusion vers la couleur lissée pour renforcer le fondu.
 		col = mix(col, c, 0.25);
 	}
 	// ---------- MODE PROCÉDURAL ----------
 	else {
 		// poids des biomes (transitions douces, pas de bord dur)
-		float w_desert = smooth_zone(distance(pos, u_desert_center.xz), u_desert_r);
-		float w_forest = smooth_zone(distance(pos, u_forest_center.xz), u_forest_r);
-		float w_water = smooth_river(pos);
+		float w_desert = smooth_zone(distance(world_pos, u_desert_center.xz), u_desert_r);
+		float w_forest = smooth_zone(distance(world_pos, u_forest_center.xz), u_forest_r);
+		float w_water = smooth_river(world_pos);
 		float total = w_desert + w_forest + w_water;
 		float w_grass = max(0.0, 1.0 - total);
-		col = grass_tex(pos) * w_grass
-			 + desert_tex(pos) * w_desert
-			 + forest_tex(pos) * w_forest
-			 + water_tex(pos) * w_water;
+		col = grass_tex(world_pos) * w_grass
+			 + desert_tex(world_pos) * w_desert
+			 + forest_tex(world_pos) * w_forest
+			 + water_tex(world_pos) * w_water;
 	}
 
 	ALBEDO = col;
