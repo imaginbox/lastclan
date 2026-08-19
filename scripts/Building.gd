@@ -145,6 +145,7 @@ func _process(delta: float) -> void:
 	if remote:
 		return  # les copies distantes ne produisent pas (économie du propriétaire)
 	_produce(delta)
+	_tower_attack(delta)
 
 ## --- Accesseurs de config ---
 func building_display_name() -> String: return _cfg().get("name", "Bâtiment")
@@ -455,6 +456,52 @@ func attack_damage() -> int:
 	if type == Type.TOWER:
 		return int(_cfg().get("attack_damage", 6) * level)
 	return 0
+
+# ============================================================ COMBAT DE TOUR
+
+## Portée et cadence de tir de la tour de défense.
+const TOWER_RANGE := 24.0
+const TOWER_FIRE_CD := 1.2
+var _tower_cd: float = 0.0
+
+## Combat automatique : la tour de défense tire sur l'ennemi le plus proche
+## dans sa portée, à intervalle régulier.
+func _tower_attack(delta: float) -> void:
+	if type != Type.TOWER:
+		return
+	_tower_cd = maxf(_tower_cd - delta, 0.0)
+	if _tower_cd > 0.0:
+		return
+	var target := _nearest_enemy_in_range()
+	if target == null:
+		return
+	_tower_cd = TOWER_FIRE_CD
+	_fire_tower_arrow(target)
+
+## Ennemi (groupe "enemy") le plus proche dans la portée de la tour.
+func _nearest_enemy_in_range() -> Node3D:
+	var best: Node3D = null
+	var best_d := TOWER_RANGE * TOWER_RANGE
+	for node in get_tree().get_nodes_in_group("enemy"):
+		if not (node is Node3D):
+			continue
+		var e := node as Node3D
+		if not is_instance_valid(e):
+			continue
+		var d := global_position.distance_squared_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+## Tire une flèche depuis le sommet de la tour vers la cible (dégâts à l'arrivée).
+func _fire_tower_arrow(target: Node3D) -> void:
+	var scene := get_tree().current_scene
+	if scene == null or target == null or not is_instance_valid(target):
+		return
+	var arrow := Arrow.new()
+	scene.add_child(arrow)
+	arrow.setup(global_position + Vector3(0.0, 3.2, 0.0), target, attack_damage())
 
 ## --- Dégâts / destruction ---
 func take_damage(amount: int) -> void:
