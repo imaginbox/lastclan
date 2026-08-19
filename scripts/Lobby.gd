@@ -76,6 +76,11 @@ const MAX_CLIENTS: int = 16
 ## ressources, mêmes décor). En mode hors ligne on utilise une graine fixe.
 var world_seed: int = 1337
 
+## Carte personnalisée assignée à ce serveur/royaume ("" = monde procédural).
+## Nom d'une carte dans res://maps/ (sans l'extension .json). Le HOST la transmet
+## aux clients à la connexion pour que tout le monde charge la même carte.
+var assigned_map: String = ""
+
 ## Calcule la graine de monde à partir du room_id (identique pour tous les pairs
 ## connectés à la même room grâce à la fonction de hachage déterministe).
 func _compute_world_seed() -> int:
@@ -346,6 +351,9 @@ func _on_player_connected(id: int) -> void:
 		# Chaque royaume (room) a sa propre saison/monde. On transmet notre room_id
 		# au client pour qu'il génère exactement le même monde déterministe.
 		_sync_room.rpc_id(id, room_id)
+		# Si une carte personnalisée est assignée au serveur, on la transmet pour
+		# que tous chargent la même carte (sinon monde procédural).
+		_sync_map.rpc_id(id, assigned_map)
 		_broadcast_roster.rpc(players)
 
 ## Reçoit le room_id du serveur (pour que le monde soit cohérent avec le royaume).
@@ -358,6 +366,12 @@ func _sync_room(room: String) -> void:
 	has_base = true
 	base_ready.emit(base_origin)
 	_mp_log("SYNC_ROOM room=%s world_seed=%d base=%.1f,%.1f,%.1f" % [room_id, world_seed, base_origin.x, base_origin.y, base_origin.z])
+
+## Reçoit la carte personnalisée assignée par le serveur ("" = procédural).
+@rpc("any_peer", "reliable")
+func _sync_map(map_name: String) -> void:
+	assigned_map = map_name
+	_mp_log("SYNC_MAP name=%s" % (map_name if not map_name.is_empty() else "(procédural)"))
 
 ## Une fois connecté au relais : on s'ajoute au roster.
 func _on_connected_ok() -> void:

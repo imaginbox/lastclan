@@ -19,6 +19,10 @@ extends Node
 # Fichier de sauvegarde (persiste les réglages admin sur ce client).
 const SAVE_PATH := "user://game_config.json"
 
+## Vrai une fois le mot de passe admin validé (session). Verrouille l'accès aux
+## outils réservés : éditeur de carte, assignation de carte à un serveur, etc.
+var admin_unlocked: bool = false
+
 ## Type paramétique d'un champ.
 enum Kind { INT, FLOAT, BOOL, STRING, COLOR }
 

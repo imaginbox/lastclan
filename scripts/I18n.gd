@@ -43,6 +43,8 @@ const STRINGS := {
 	"ui.name": {"en": "Your name", "fr": "Votre nom"},
 	"ui.play_offline": {"en": "Play offline (solo)", "fr": "Jouer hors ligne (solo)"},
 	"ui.map_editor": {"en": "Map editor", "fr": "Éditeur de carte"},
+	"ui.server_map": {"en": "Server map", "fr": "Carte du serveur"},
+	"ui.map_procedural": {"en": "— Procedural world —", "fr": "— Monde procédural —"},
 	"ui.choose_server": {"en": "Choose a server (kingdom)", "fr": "Choisir un serveur (royaume)"},
 	"ui.create_game": {"en": "Create a game", "fr": "Créer une partie"},
 	"ui.join_game": {"en": "Join a game", "fr": "Rejoindre une partie"},

@@ -124,6 +124,9 @@ func _on_pw_ok() -> void:
 	var got := _pw_input.text.strip_edges()
 	if got == want:
 		_unlocked = true
+		# Déverrouille la session admin : donne accès aux outils réservés
+		# (éditeur de carte, assignation de carte à un serveur) dans le lobby.
+		_gc().admin_unlocked = true
 		_show_panel()
 	else:
 		_pw_status.text = "Mot de passe incorrect"

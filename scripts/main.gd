@@ -940,7 +940,18 @@ func _cyl(radius: float, height: float, col: Color, at: Vector3) -> MeshInstance
 ## Met le sol en mode grille (shader u_grid), fait apparaître le décor et définit
 ## la base (hors ligne). Retourne vrai si une carte a été chargée.
 func _load_map_world() -> bool:
-	var tm := TerrainMap.load_from(ACTIVE_MAP)
+	# En ligne : on charge la carte assignée au serveur (partagée via Lobby).
+	# Hors ligne : carte assignée, sinon la carte active de l'éditeur (active.json).
+	var map_name: String = Lobby.assigned_map
+	if map_name.is_empty() and not Lobby.is_online:
+		map_name = "active"
+	if map_name.is_empty():
+		return false  # monde procédural
+	var tm: TerrainMap
+	if map_name == "active":
+		tm = TerrainMap.load_from(ACTIVE_MAP)
+	else:
+		tm = TerrainMap.load_from("res://maps/" + map_name + ".json")
 	if tm == null:
 		return false
 	# Sol en mode grille (carte peinte, transitions douces via filtre linéaire).

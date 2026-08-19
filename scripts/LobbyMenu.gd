@@ -256,14 +256,38 @@ func _build_ui() -> void:
 	_offline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	actions.add_child(_offline_button)
 
-	# « Éditeur de carte » : ouvre l'outil de création de carte (peindre les
-	# zones, placer décor/spawns, sauvegarder → la carte active remplace le monde
-	# procédural au prochain lancement du jeu).
-	var editor_btn := _big_button("🗺️ " + _langs().t("ui.map_editor"), _on_editor_pressed, false)
-	editor_btn.custom_minimum_size = Vector2(0, _gd(44))
-	editor_btn.add_theme_font_size_override("font_size", _gd(15))
-	editor_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	actions.add_child(editor_btn)
+	# ---- Outils admin (réservés : seuls visibles après déverrouillage admin) ----
+	# Éditeur de carte + assignation d'une carte personnalisée à ce serveur/royaume.
+	if _admin_unlocked():
+		var editor_btn := _big_button("🗺️ " + _langs().t("ui.map_editor"), _on_editor_pressed, false)
+		editor_btn.custom_minimum_size = Vector2(0, _gd(44))
+		editor_btn.add_theme_font_size_override("font_size", _gd(15))
+		editor_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		actions.add_child(editor_btn)
+
+		# Assignation d'une carte au serveur : liste des cartes enregistrées.
+		var map_row := HBoxContainer.new()
+		map_row.add_theme_constant_override("separation", _gd(8))
+		actions.add_child(map_row)
+		var map_lab := _field_label(_langs().t("ui.server_map"))
+		map_row.add_child(map_lab)
+		var map_opt := OptionButton.new()
+		map_opt.custom_minimum_size = Vector2(0, _gd(40))
+		map_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_stylize_button(map_opt)
+		map_opt.add_item(_langs().t("ui.map_procedural"))  # index 0 = procédural
+		for m in _list_maps():
+			map_opt.add_item(m)
+		# Restaure la carte déjà assignée si elle est dans la liste.
+		var cur: String = _lobby().assigned_map
+		var found := 0
+		for i in map_opt.item_count:
+			if map_opt.get_item_text(i) == cur:
+				found = i
+				break
+		map_opt.select(found)
+		map_opt.item_selected.connect(func(i: int): _on_map_selected(i, map_opt))
+		map_row.add_child(map_opt)
 
 	# ---- Aide / Comment jouer (repliable).
 	var help_header := _big_button("❓ " + _langs().t("help.title"), _on_toggle_help, false)
@@ -529,6 +553,33 @@ func _on_offline_pressed() -> void:
 func _on_editor_pressed() -> void:
 	_apply_name()
 	get_tree().change_scene_to_file("res://scenes/MapEditor.tscn")
+
+## True si la session admin est déverrouillée (mot de passe admin validé).
+func _admin_unlocked() -> bool:
+	var g := get_node_or_null("/root/GameConfig")
+	return g != null and bool(g.admin_unlocked)
+
+## Liste les cartes enregistrées dans res://maps/ (sans l'extension).
+func _list_maps() -> Array[String]:
+	var out: Array[String] = []
+	var dir := DirAccess.open("res://maps")
+	if dir == null:
+		return out
+	dir.list_dir_begin()
+	var f := dir.get_next()
+	while f != "":
+		if f.ends_with(".json") and not f.begins_with("."):
+			out.append(f.trim_suffix(".json"))
+		f = dir.get_next()
+	out.sort()
+	return out
+
+## Change la carte assignée au serveur (index 0 = monde procédural).
+func _on_map_selected(idx: int, opt: OptionButton) -> void:
+	_lobby().assigned_map = "" if idx == 0 else opt.get_item_text(idx)
+	var label: String = ("Monde procédural" if _lobby().assigned_map.is_empty()
+			else str(_lobby().assigned_map))
+	_on_status("Carte du serveur : " + label)
 
 ## Bascule vers la scène de jeu Main.tscn.
 func _launch_game() -> void:

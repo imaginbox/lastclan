@@ -81,6 +81,7 @@ func _build_ui() -> void:
 	top_box.add_child(_name_edit)
 
 	top_box.add_child(_btn("Nouveau", _on_new))
+	top_box.add_child(_btn("Générer", _on_generate))
 	top_box.add_child(_btn("Charger", _on_load))
 	top_box.add_child(_btn("Sauvegarder", _on_save))
 	top_box.add_child(_btn("Retour", _on_back))
@@ -393,6 +394,80 @@ func _on_new() -> void:
 	_refresh_decor_preview()
 	_rebake()
 	_status.text = "Nouvelle carte (tout prairie)."
+
+## Génère une carte aléatoire naturelle (rivières, forêts, déserts) à utiliser
+## comme base de travail, puis à modifier à la main.
+func _on_generate() -> void:
+	_map = TerrainMap.new()
+	var G := TerrainMap.GRID
+	var HALF := G / 2.0
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	# Base : tout en herbe.
+	for iz in G:
+		for ix in G:
+			_map.set_cell(ix, iz, TerrainMap.TB.GRASS)
+	# 1 à 2 rivières courbes traversant la carte.
+	var rivers := rng.randi_range(1, 2)
+	for r in rivers:
+		var x := rng.randf_range(HALF * 0.25, HALF * 0.75)
+		var z := rng.randf_range(HALF * 0.25, HALF * 0.75)
+		var dir := rng.randf_range(0.0, TAU)
+		var seg: Array[Vector2] = []
+		var px := x
+		var pz := z
+		var step := 0.5
+		var steps := int(G * 1.4 / step)
+		for i in steps:
+			seg.append(Vector2(px, pz))
+			var w := sin(i * 0.18) * 1.4 + sin(i * 0.07 + 3.0) * 0.8
+			px += cos(dir + w) * step
+			pz += sin(dir + w) * step
+		_draw_thick_path(seg, 2 + rng.randi_range(0, 2), TerrainMap.TB.WATER)
+	# Taches de forêt.
+	var forests := rng.randi_range(2, 4)
+	for i in forests:
+		_draw_blob(rng.randf_range(HALF * 0.25, G - HALF * 0.25),
+				rng.randf_range(HALF * 0.25, G - HALF * 0.25),
+				rng.randf_range(6.0, 14.0), TerrainMap.TB.FOREST, rng)
+	# Taches de désert.
+	var deserts := rng.randi_range(2, 4)
+	for i in deserts:
+		_draw_blob(rng.randf_range(HALF * 0.25, G - HALF * 0.25),
+				rng.randf_range(HALF * 0.25, G - HALF * 0.25),
+				rng.randf_range(6.0, 13.0), TerrainMap.TB.DESERT, rng)
+	# Base au centre, avant-poste sur le bord.
+	_map.add_spawn("base", 0.0, 0.0)
+	var ang := rng.randf_range(0.0, TAU)
+	_map.add_spawn("outpost", cos(ang) * 120.0, sin(ang) * 120.0)
+	_name_edit.text = "carte_" + str(Time.get_unix_time_from_system()).substr(7)
+	_refresh_decor_preview()
+	_rebake()
+	_status.text = "Carte générée aléatoirement — modifie-la puis sauvegarde."
+
+## Trace une bande épaisse de cellules le long d'une série de points.
+func _draw_thick_path(seg: Array, width: int, biome: int) -> void:
+	for s in seg:
+		var sx := int(s.x)
+		var sz := int(s.y)
+		for dz in range(-width, width + 1):
+			for dx in range(-width, width + 1):
+				if dx * dx + dz * dz <= width * width:
+					_set_cell_safe(sx + dx, sz + dz, biome)
+
+## Remplit un « blob » circulaire à bord irrégulier (aspect naturel).
+func _draw_blob(cx: float, cz: float, rad: float, biome: int, rng: RandomNumberGenerator) -> void:
+	var wob := rng.randf_range(0.0, TAU)
+	for iz in range(int(cz - rad) - 2, int(cz + rad) + 3):
+		for ix in range(int(cx - rad) - 2, int(cx + rad) + 3):
+			var d := Vector2(float(ix) - cx, float(iz) - cz).length()
+			var jitter := sin(ix * 0.4 + wob) * 2.0 + sin(iz * 0.35 - wob) * 2.0
+			if d < rad + jitter:
+				_set_cell_safe(ix, iz, biome)
+
+func _set_cell_safe(ix: int, iz: int, b: int) -> void:
+	if ix >= 0 and ix < TerrainMap.GRID and iz >= 0 and iz < TerrainMap.GRID:
+		_map.set_cell(ix, iz, b)
 
 func _on_load() -> void:
 	DirAccess.make_dir_recursive_absolute(MAPS_DIR)
