@@ -149,6 +149,7 @@ func _ready() -> void:
 		return
 	# Sinon : mode Ziva (relais) si serveur dédié, et hors ligne pour le solo.
 	if is_dedicated_server:
+		_apply_default_map()
 		connection_status.emit("Serveur dédié : connexion à la room « %s »…" % room_id)
 		join_room(room_id)
 	elif _should_go_offline():
@@ -240,7 +241,17 @@ func join_room(room: String) -> void:
 ## --- Mode AUTO-HÉBERGÉ NATIF (sans Ziva) ---
 
 ## Démarre un VRAI SERVEUR qui écoute sur net_port et accueille directement les
-## clients. Aucun relais : le serveur est peer 1, les clients seront peers 2+.
+## Si aucune carte n'est explicitement assignée, le serveur/hôte utilise le
+## monde par défaut de l'éditeur (res://maps/active.json). Ainsi le monde créé
+## par le joueur devient le monde par défaut, y compris en multijoueur (le
+## serveur le transmet à tous les clients via _sync_map).
+func _apply_default_map() -> void:
+	if assigned_map.is_empty() and FileAccess.file_exists("res://maps/active.json"):
+		assigned_map = "active"
+		_mp_log("DEFAULT_MAP active.json")
+
+## Démarre le serveur (peer 1) et devient hôte. Utilisé en mode auto-hébergé :
+## le serveur est peer 1, les clients seront peers 2+.
 func _start_host() -> void:
 	var peer: MultiplayerPeer
 	var err: Error
@@ -272,6 +283,7 @@ func _start_host() -> void:
 	multiplayer.multiplayer_peer = peer
 	my_id = 1
 	is_online = true
+	_apply_default_map()
 	players.clear()
 	players[1] = player_info
 	world_seed = _compute_world_seed()
