@@ -117,13 +117,16 @@ func _process(_delta: float) -> void:
 
 func _apply() -> void:
 	var pitch := deg_to_rad(pitch_deg)
-	# Distance caméra fixe (n'importe pas en ortho, juste assez grande pour éviter
-	# le clipping) ; le zoom se fait via `size`.
+	# Distance caméra : en ortho la distance n'agit pas sur le zoom, mais il faut
+	# élever la caméra avec `size`, sinon au dézoom le bas de l'écran se projette
+	# SOUS le niveau du sol et laisse voir le fond (vide bleu). On garde une
+	# distance minimale confortable en gros plan.
+	var dist := maxf(45.0, _size * 0.5)
 	var offset := Vector3(
 		cos(pitch) * sin(_yaw),
 		sin(pitch),
 		cos(pitch) * cos(_yaw)
-	) * 45.0
+	) * dist
 	global_transform = Transform3D(Basis.IDENTITY, _pivot + offset)
 	look_at(_pivot, Vector3.UP)
 	size = _size
