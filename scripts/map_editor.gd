@@ -87,6 +87,9 @@ func _build_ui() -> void:
 	top_box.add_child(_btn("Générer", _on_generate))
 	top_box.add_child(_btn("Charger", _on_load))
 	top_box.add_child(_btn("Sauvegarder", _on_save))
+	var def_btn := _btn("Défaut", _on_set_default)
+	def_btn.tooltip_text = "Définir comme monde par défaut du jeu (active.json)"
+	top_box.add_child(def_btn)
 	top_box.add_child(_btn("Retour", _on_back))
 
 	_status = Label.new()
@@ -588,3 +591,54 @@ func _on_save() -> void:
 		_status.text = "Sauvegardé: " + map_id + " (active)"
 	else:
 		_status.text = "Erreur de sauvegarde."
+
+## Liste les cartes enregistrées (res://maps/*.json), triées par nom.
+func _list_saved_maps() -> Array:
+	DirAccess.make_dir_recursive_absolute(MAPS_DIR)
+	var dir := DirAccess.open(MAPS_DIR)
+	var names: Array = []
+	if dir == null:
+		return names
+	dir.list_dir_begin()
+	var f := dir.get_next()
+	while f != "":
+		if f.ends_with(".json") and not f.begins_with("."):
+			names.append(f.trim_suffix(".json"))
+		f = dir.get_next()
+	names.sort()
+	return names
+
+## Définit une carte enregistrée comme monde par défaut du jeu (active.json),
+## sans modifier le dessin en cours. Ouvre une boîte de choix des cartes.
+func _on_set_default() -> void:
+	var names := _list_saved_maps()
+	if names.is_empty():
+		_status.text = "Aucune carte enregistrée."
+		return
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Définir le monde par défaut"
+	dlg.ok_button_text = "Définir par défaut"
+	dlg.cancel_button_text = "Annuler"
+	var box := VBoxContainer.new()
+	dlg.add_child(box)
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var lbl := Label.new()
+	lbl.text = "Choisis la carte chargée par défaut dans le jeu :"
+	box.add_child(lbl)
+	var opt := OptionButton.new()
+	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for n in names:
+		opt.add_item(n)
+	opt.selected = 0
+	box.add_child(opt)
+	dlg.get_ok_button().pressed.connect(func():
+		var chosen: String = names[opt.selected]
+		var tm := TerrainMap.load_from(MAPS_DIR + "/" + chosen + ".json")
+		if tm != null and tm.save_to(ACTIVE_MAP) == OK:
+			_status.text = "« " + chosen + " » défini comme monde par défaut."
+		else:
+			_status.text = "Erreur : impossible de définir la carte par défaut."
+		dlg.queue_free())
+	dlg.canceled.connect(func(): dlg.queue_free())
+	add_child(dlg)
+	dlg.popup_centered(Vector2(380, 140))
