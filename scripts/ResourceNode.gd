@@ -86,6 +86,11 @@ var busy_workers: int = 0
 ## Échelle appliquée au modèle (ajustée selon le type pour cadrer au monde).
 var model_scale: float = 1.0
 
+## Hauteur cible (unités monde) d'un arbre récoltable. Les familles tree1/tree2/
+## tree3 ont des tailles de base différentes ; on normalise le modèle à cette
+## hauteur pour un rendu cohérent sur toute la carte.
+const RESOURCE_TREE_H := 10.0
+
 var _model_root: Node3D = null
 var _current_stage: int = -1
 var _selection_ring: MeshInstance3D = null
@@ -299,7 +304,16 @@ func _swap_model(stage: PackedScene) -> void:
 
 	var inst: Node = stage.instantiate()
 	_model_root.add_child(inst)
-	
+
+	# Normalise la hauteur de l'arbre : les familles tree1/tree2/tree3 ont des
+	# tailles de base différentes ; on les homogénéise pour un rendu cohérent.
+	var tree_scale := Vector3.ONE
+	if resource_type == ResourceType.WOOD:
+		var h := _model_height(inst)
+		if h > 0.001:
+			tree_scale = Vector3.ONE * (RESOURCE_TREE_H / h)
+			inst.scale = tree_scale
+
 	# GÉNÉRATION DE COLLISION PAR MESH :
 	# On parcourt les meshes du modèle et on génère une forme de collision convexe
 	# pour chacun. C'est beaucoup plus précis qu'une simple boîte.
@@ -309,9 +323,10 @@ func _swap_model(stage: PackedScene) -> void:
 			var shape := mesh_instance.mesh.create_convex_shape()
 			var cs := CollisionShape3D.new()
 			cs.shape = shape
-			# On applique l'échelle et la position relative du mesh.
-			cs.scale = mesh_instance.scale * model_scale
-			cs.position = mesh_instance.position * model_scale
+			# On applique l'échelle et la position relative du mesh, en tenant
+			# compte de la normalisation de hauteur.
+			cs.scale = mesh_instance.scale * model_scale * tree_scale
+			cs.position = mesh_instance.position * model_scale * tree_scale
 			add_child(cs)
 
 	# Applique la texture forêt aux modèles...
@@ -362,3 +377,12 @@ func _collect_meshes(node: Node, acc: Array = []) -> Array:
 	for c in node.get_children():
 		acc = _collect_meshes(c, acc)
 	return acc
+
+## Hauteur visible (axe Y) du modèle : la plus grande AABB parmi ses meshes.
+func _model_height(node: Node) -> float:
+	var h := 0.0
+	for mi in _collect_meshes(node):
+		var b: AABB = (mi as MeshInstance3D).get_aabb()
+		if b.size.y > h:
+			h = b.size.y
+	return h

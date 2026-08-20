@@ -41,6 +41,11 @@ const TREE_POOL: Array[PackedScene] = [
 	preload("res://assets/models/Mes assets/Assets/tree3/Tree_5_F_Color1.gltf"),
 ]
 
+## Hauteur cible d'un arbre décoratif (unités monde). Les modèles tree1/tree2/
+## tree3 ont des tailles de base très différentes ; on les normalise à cette
+## hauteur pour que tout le décor d'arbres soit cohérent.
+const TREE_TARGET_H := 6.0
+
 ## Construit une touffe d'herbe (modèle aléatoire).
 func build_grass() -> void:
 	var ps := GRASS_POOL[randi() % GRASS_POOL.size()]
@@ -68,9 +73,15 @@ func build_grass_image(image_path: String, width: float, height: float) -> void:
 	add_child(spr)
 
 ## Construit un arbre décoratif (modèle aléatoire), plus grand que l'herbe.
+## Tous les modèles sont normalisés à la même hauteur (TREE_TARGET_H) pour un
+## rendu cohérent.
 func build_tree() -> void:
 	var ps := TREE_POOL[randi() % TREE_POOL.size()]
-	_instantiate(ps)
+	var inst := _instantiate(ps)
+	# Normalise la hauteur du modèle : même taille de base quel que soit le modèle.
+	var h := _tree_height(inst)
+	if h > 0.001:
+		inst.scale *= TREE_TARGET_H / h
 
 ## Texture forêt partagée (chargée une seule fois).
 var _forest_tex: Texture2D = null
@@ -78,8 +89,8 @@ var _forest_tex: Texture2D = null
 ## Instancie un modèle fourni comme enfant de ce nœud décor,
 ## et applique la texture forêt (les .gltf référencent forest_texture.png par un
 ## chemin relatif qui ne se résout pas, on l'applique donc explicitement).
-func _instantiate(ps: PackedScene) -> void:
-	var inst: Node = ps.instantiate()
+func _instantiate(ps: PackedScene) -> Node3D:
+	var inst: Node3D = ps.instantiate()
 	add_child(inst)
 	if _forest_tex == null:
 		_forest_tex = load("res://assets/models/Mes assets/Textures/forest_texture.png") as Texture2D
@@ -90,6 +101,16 @@ func _instantiate(ps: PackedScene) -> void:
 		mat.roughness = 0.8
 		mat.metallic = 0.0
 		mesh.material_override = mat
+	return inst
+
+## Hauteur visible (axe Y) de l'arbre : la plus grande AABB parmi ses meshes.
+func _tree_height(node: Node) -> float:
+	var h := 0.0
+	for mi in _collect_meshes(node):
+		var b: AABB = (mi as MeshInstance3D).get_aabb()
+		if b.size.y > h:
+			h = b.size.y
+	return h
 
 func _collect_meshes(node: Node, acc: Array = []) -> Array:
 	if node is MeshInstance3D:

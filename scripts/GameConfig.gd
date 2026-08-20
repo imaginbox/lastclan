@@ -253,7 +253,7 @@ const REGISTRY: Array = [
 	{"key": "camera.vitesse_zoom", "kind": Kind.FLOAT, "cat": "Caméra", "sub": "Zoom",
 	 "label": "Vitesse du zoom (molette)", "def": 6.0, "min": 1.0, "max": 30.0, "step": 1.0},
 	{"key": "camera.inclinaison", "kind": Kind.FLOAT, "cat": "Caméra", "sub": "Angle de vue",
-	 "label": "Inclinaison caméra (degrés)", "def": 50.0, "min": 10.0, "max": 85.0, "step": 1.0},
+	 "label": "Inclinaison caméra (degrés)", "def": 35.0, "min": 10.0, "max": 85.0, "step": 1.0},
 
 	# ------------------------------- MONDE ----------------------------------
 	{"key": "monde.herbe_densite", "kind": Kind.INT, "cat": "Monde", "sub": "Décor",

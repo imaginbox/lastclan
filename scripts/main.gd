@@ -712,7 +712,7 @@ func _spawn_decor() -> void:
 		decor_root.add_child(d)
 		d.global_position = pos
 		d.rotation_degrees.y = _world_rng.randf_range(0, 360)
-		var s := _world_rng.randf_range(0.7, 1.4)
+		var s := _world_rng.randf_range(0.9, 1.2)
 		d.scale = Vector3(s, s, s)
 	# Arbres décoratifs : SUPPRIMÉS. 
 	# Tous les arbres du monde sont désormais des ResourceNode récoltables.
@@ -892,7 +892,7 @@ func _spawn_biome_decor() -> void:
 		var c := _make_cactus()
 		c.position = pos
 		c.rotation_degrees.y = _biome_rng.randf_range(0.0, 360.0)
-		var s := _biome_rng.randf_range(0.8, 1.5)
+		var s := _biome_rng.randf_range(0.9, 1.2)
 		c.scale = Vector3(s, s, s)
 		_biome_root.add_child(c)
 	var trees := 60
@@ -904,7 +904,7 @@ func _spawn_biome_decor() -> void:
 		d.build_tree()
 		d.position = pos
 		d.rotation_degrees.y = _biome_rng.randf_range(0.0, 360.0)
-		var s2 := _biome_rng.randf_range(0.8, 1.6)
+		var s2 := _biome_rng.randf_range(0.95, 1.2)
 		d.scale = Vector3(s2, s2, s2)
 		_biome_root.add_child(d)
 

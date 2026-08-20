@@ -149,19 +149,21 @@ void fragment() {
 	vec2 world_pos = (UV - 0.5) * 2.0 * u_floor_half;
 	vec3 col;
 
-	// Hors de la carte : sol neutre (remplit l'écran, pas de fond vide).
-	if (abs(world_pos.x) > u_half || abs(world_pos.y) > u_half) {
-		col = u_out_color;
-	}
 	// ---------- MODE CARTE ÉDITÉE ----------
-	else if (u_use_grid) {
-		vec2 map_uv = world_pos / (2.0 * u_half) + 0.5;
-		vec3 c = texture(u_grid, map_uv).rgb;   // couleur palette lissée (transitions douces)
-		col = grid_colors(world_pos, c);
-		// Légère fusion vers la couleur lissée pour renforcer le fondu.
-		col = mix(col, c, 0.25);
+	if (u_use_grid) {
+		// La carte (400x400) occupe la zone centrale ±u_half ; au-delà, le sol
+		// visible est rempli d'une couleur neutre pour que l'écran soit toujours
+		// couvert (pas de fond vide) tout en gardant la carte au centre.
+		if (abs(world_pos.x) > u_half || abs(world_pos.y) > u_half) {
+			col = u_out_color;
+		} else {
+			vec2 map_uv = world_pos / (2.0 * u_half) + 0.5;
+			vec3 c = texture(u_grid, map_uv).rgb;   // couleur palette lissée (transitions douces)
+			col = grid_colors(world_pos, c);
+			col = mix(col, c, 0.25);   // renforce le fondu vers la couleur lissée
+		}
 	}
-	// ---------- MODE PROCÉDURAL ----------
+	// ---------- MODE PROCÉDURAL (remplit TOUT le sol visible) ----------
 	else {
 		// poids des biomes (transitions douces, pas de bord dur)
 		float w_desert = smooth_zone(distance(world_pos, u_desert_center.xz), u_desert_r);
